@@ -1,0 +1,23 @@
+# Claude Code - file cấu hình/ghi chú riêng máy
+CLAUDE.local.md
+.claude/settings.local.json
+
+# Dependencies
+node_modules/
+.venv/
+__pycache__/
+
+# Build output
+dist/
+build/
+*.log
+
+# OS / Editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Env
+.env
+.env.local

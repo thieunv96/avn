@@ -1,0 +1,117 @@
+{
+  "$comment": "Asilla company baseline — ~/.claude/settings.json. Rule syntax: Bash uses exact or prefix match with ':*' (NOT regex). Read/Edit use gitignore-style paths. Precedence: deny > ask > allow. Verify rules after install with /permissions inside Claude Code.",
+
+  "permissions": {
+
+    "deny": [
+      "Bash(sudo:*)",
+      "Bash(su:*)",
+      "Bash(rm -rf:*)",
+      "Bash(rm -fr:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(npm install -g:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/*.key)",
+      "Read(**/*.pem)",
+      "Read(**/*.p12)",
+      "Read(**/*.pfx)",
+      "Read(**/credentials.json)",
+      "Read(**/secrets/**)",
+      "Read(**/kubeconfig)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.kube/**)",
+      "Read(~/.docker/config.json)",
+
+      "Edit(**/.env)",
+      "Edit(**/.env.*)",
+      "Edit(**/secrets/**)",
+      "Edit(**/.github/**)",
+      "Edit(**/.mcp.json)",
+      "Edit(~/.claude/settings.json)",
+      "Edit(~/.claude/hooks/**)"
+    ],
+
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(npm install:*)",
+      "Bash(yarn add:*)",
+      "Bash(pnpm add:*)",
+      "Bash(pip install:*)",
+      "Bash(uv add:*)",
+      "Bash(docker:*)",
+      "Bash(docker-compose:*)",
+      "Bash(kubectl:*)",
+      "Bash(helm:*)",
+      "Bash(terraform:*)",
+      "Bash(ansible:*)",
+      "Bash(ansible-playbook:*)",
+      "Bash(aws:*)",
+      "Bash(gcloud:*)",
+      "Bash(az:*)",
+      "Bash(ssh:*)",
+      "Bash(scp:*)",
+      "Bash(rsync:*)",
+      "Bash(psql:*)",
+      "Bash(mysql:*)",
+      "Bash(redis-cli:*)",
+      "Bash(systemctl:*)"
+    ],
+
+    "allow": [
+      "Bash(git status)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git branch:*)",
+      "Bash(git checkout:*)",
+      "Bash(git stash:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(npm test)",
+      "Bash(npm run test:*)",
+      "Bash(npm run lint:*)",
+      "Bash(npm run build:*)",
+      "Bash(pytest:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(ruff:*)",
+      "Bash(go test:*)",
+      "Bash(go build:*)",
+      "Bash(make test:*)",
+      "Bash(make lint:*)",
+      "Bash(ls:*)",
+      "Bash(pwd)",
+      "Bash(which:*)",
+      "Bash(grep:*)",
+      "Bash(rg:*)",
+      "Bash(find:*)",
+      "Bash(node --version)",
+      "Bash(npm --version)",
+      "Bash(python --version)"
+    ]
+  },
+
+  "defaultMode": "default",
+  "enableAllProjectMcpServers": false,
+  "cleanupPeriodDays": 30,
+
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/bash-guard.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
