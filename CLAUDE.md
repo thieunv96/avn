@@ -195,6 +195,15 @@ Run every layer — the full suite — for every change, small or large:
 A passing build, a linter, a script diffing output against a fixture, or a screenshot compared to a
 design all count as verification gates.
 
+### E2E on a shared environment
+
+When e2e tests run against an environment shared with developers (not a throwaway/isolated one),
+treat the data you create as a guest:
+
+- **Tag and track everything Claude Code creates** — use a recognizable marker (a `claude-e2e-` prefix, a dedicated test account/namespace, or a recorded list of created IDs) so it is unambiguous which records are test data.
+- **Clean up after the run**: delete exactly the data you created — nothing else. Never touch or delete pre-existing or developer data.
+- If you cannot reliably isolate and remove what you create, **stop and ask** first; prefer an isolated or ephemeral environment when one is available.
+
 ### By change type
 
 - **Bug fix — systematic debugging:** **reproduce first (always)** → isolate → find the root cause (not the symptom) → fix the smallest relevant path → **sweep the codebase for the same root cause/pattern elsewhere and fix every occurrence** (or list any you intentionally leave, with the reason) → add a regression test and run it → run broader checks. Report: root cause / other affected sites / fix / regression coverage / verified.

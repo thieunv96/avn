@@ -23,3 +23,10 @@ write a test once you are in a test file.
 - **Unit** — pure logic in isolation; fast; the bulk of tests.
 - **Integration** — several real components together (DB, service, pipeline stage).
 - **End-to-end** — a full user/flow path through a real automation tool (Playwright/Puppeteer/Cypress); few, high-value.
+
+## Data created by e2e on a shared environment
+
+If e2e runs against an environment shared with developers, tag the data the test creates with a
+recognizable marker (e.g. a `claude-e2e-` prefix or dedicated namespace) and add teardown that
+removes **only** that data after the run. Never delete pre-existing or developer data. See
+`CLAUDE.md` §10 "E2E on a shared environment".
