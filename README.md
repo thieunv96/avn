@@ -24,9 +24,19 @@ curl -fsSL https://raw.githubusercontent.com/thieunv96/avn/master/install.sh | b
 
 The script downloads the baseline from GitHub, copies the four pieces above into the target repo,
 and **rewrites the hook command to `${CLAUDE_PROJECT_DIR}/.claude/hooks/bash-guard.sh`** so the
-baseline is self-contained per repo. It backs up any file it would overwrite to `<file>.bak`
-(unless `--force`), is safe to re-run (idempotent), and appends `CLAUDE.local.md` /
+baseline is self-contained per repo. It is safe to re-run (idempotent) and appends `CLAUDE.local.md` /
 `.claude/settings.local.json` to an existing `.gitignore` if missing.
+
+When a file would be overwritten, you get an arrow-key menu asking whether to back it up first
+(default: **Yes** → `<file>.bak`). Control it non-interactively with flags:
+
+| Flag | Effect |
+| --- | --- |
+| `--dry-run` | Preview only; change nothing. |
+| `--backup` / `--no-backup` | Choose backup behavior without prompting. |
+| `-y`, `--yes` | Don't prompt; use defaults (backup = yes). |
+| `--force` | Overwrite without backups and without prompts. |
+| `--no-color` | Plain output. |
 
 Requirements: `tar` plus `curl` or `wget` on PATH (standard on Linux/macOS).
 
