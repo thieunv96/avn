@@ -4,6 +4,8 @@ A shared Claude Code configuration baseline for Asilla projects:
 
 - `CLAUDE.md` — quality-focused working agreement (workflow, scope, secrets, production, testing).
 - `.claude/rules/` — path-scoped rules that load on demand: `ui.md`, `realtime-performance.md`, `testing.md`.
+- `.claude/skills/research/SKILL.md` — the pre-implementation research protocol (deep / web / impact / security via subagents); invoke with `/research` or let it run as part of the workflow.
+- `.claude/agents/` — research subagents that run in isolated context and return only findings: `impact-research.md`, `security-research.md`.
 - `.claude/hooks/bash-guard.sh` — PreToolUse hook that deterministically blocks dangerous Bash commands.
 - `.claude/settings.json` — permission baseline (allow / ask / deny) plus the hook wiring.
 
@@ -22,7 +24,7 @@ curl -fsSL https://raw.githubusercontent.com/thieunv96/avn/master/install.sh | b
 curl -fsSL https://raw.githubusercontent.com/thieunv96/avn/master/install.sh | bash -s -- --dry-run /path/to/repo
 ```
 
-The script downloads the baseline from GitHub, copies the four pieces above into the target repo,
+The script downloads the baseline from GitHub, copies the pieces above into the target repo,
 and **rewrites the hook command to `${CLAUDE_PROJECT_DIR}/.claude/hooks/bash-guard.sh`** so the
 baseline is self-contained per repo. It is safe to re-run (idempotent) and appends `CLAUDE.local.md` /
 `.claude/settings.local.json` to an existing `.gitignore` if missing.
@@ -61,6 +63,10 @@ When run from a clone, the script installs the local files directly (no download
 
 ## Notes
 
+- The baseline makes research a default step: before non-trivial work, Claude classifies the task by
+  intent (not keywords) and runs deep / impact / security research via subagents — adding web research
+  when the codebase or its knowledge isn't enough — before coding. See `.claude/skills/research/SKILL.md`.
+  `install.sh` ships these (`.claude/agents/*.md`, `.claude/skills/**`) along with the rest of the baseline.
 - Project `.claude/settings.json` permissions **merge** with your user-level `~/.claude/settings.json`
   (they do not clobber it).
 - Run the `curl | bash` bootstrap in a **normal terminal**, not inside a Claude Code session that is
