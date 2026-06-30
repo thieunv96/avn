@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # install.sh — install the Asilla Claude Code baseline into a target repo.
 #
-# Copies CLAUDE.md + .claude/{rules,agents,skills,hooks,settings.json} into TARGET_DIR
-# and rewrites the hook command to be project-relative (${CLAUDE_PROJECT_DIR}) so the
+# Copies CLAUDE.md + .claude/{rules,hooks,settings.json} into TARGET_DIR and
+# rewrites the hook command to be project-relative (${CLAUDE_PROJECT_DIR}) so the
 # baseline is fully self-contained per repo.
 #
 # Two ways to run:
@@ -53,9 +53,8 @@ Env:
   AVN_REPO       GitHub owner/repo to fetch when run without a clone (default: thieunv96/avn).
   AVN_REF        Branch or tag to fetch (default: master).
 
-Installs CLAUDE.md, .claude/rules/*.md, .claude/agents/*.md, .claude/skills/**,
-.claude/hooks/bash-guard.sh (executable), and .claude/settings.json (hook path
-rewritten to ${CLAUDE_PROJECT_DIR}).
+Installs CLAUDE.md, .claude/rules/*.md, .claude/hooks/bash-guard.sh (executable),
+and .claude/settings.json (hook path rewritten to ${CLAUDE_PROJECT_DIR}).
 EOF
 }
 
@@ -154,7 +153,6 @@ menu_select() {
 # install_file SRC_FILE DEST_FILE  (uses DO_BACKUP, DRY_RUN)
 install_file() {
   local s="$1" d="$2" r; r="$(rel "$d")"
-  [ "$DRY_RUN" -eq 1 ] || mkdir -p "$(dirname "$d")"
   if [ -f "$d" ]; then
     if cmp -s "$s" "$d"; then
       line "$DIM" "=" "unchanged" "$r"; N_UNCHANGED=$((N_UNCHANGED+1)); return 0
@@ -232,15 +230,6 @@ for r in "$SRC"/.claude/rules/*.md; do
   [ -e "$r" ] || continue
   add_pair "$r" "$TARGET_ABS/.claude/rules/$(basename "$r")"
 done
-for a in "$SRC"/.claude/agents/*.md; do
-  [ -e "$a" ] || continue
-  add_pair "$a" "$TARGET_ABS/.claude/agents/$(basename "$a")"
-done
-if [ -d "$SRC/.claude/skills" ]; then
-  while IFS= read -r sk; do
-    add_pair "$sk" "$TARGET_ABS/.claude/skills/${sk#"$SRC"/.claude/skills/}"
-  done < <(find "$SRC/.claude/skills" -type f | sort)
-fi
 add_pair "$SRC/.claude/hooks/bash-guard.sh" "$TARGET_ABS/.claude/hooks/bash-guard.sh"
 add_pair "$TMP_SETTINGS" "$TARGET_ABS/.claude/settings.json"
 

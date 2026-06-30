@@ -36,7 +36,6 @@ Implement, then Verify and report.
 - Read the relevant existing code before writing any. Reuse existing patterns (see §3).
 - **Always use a sub-agent for web research and for exploring a large or unfamiliar codebase.** It works in its own context and returns only the findings, keeping the main context focused. Reading a few known files directly is fine; broad searching and web research are not.
 - Launch independent sub-agents in parallel when their searches do not depend on each other.
-- **Run the research protocol before coding (see the `research` skill).** Classify each request by its intent and effect, not by keywords: if it could change code/config/data/behavior, run deep-research (always, via Explore), impact-research (always), and security-research (always); add web-research when the codebase or your knowledge is not enough to decide. Dispatch all of these via sub-agents, scaling their number to complexity. **When unsure whether a lens applies, run it — quality, stability, and accuracy outrank token cost.** The only exception is the one-sentence obvious fix above (no impact or security surface, no open unknown).
 
 ### Clarify the spec (spec-driven)
 
