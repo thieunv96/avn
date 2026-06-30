@@ -36,6 +36,7 @@ When a file would be overwritten, you get an arrow-key menu asking whether to ba
 | `--backup` / `--no-backup` | Choose backup behavior without prompting. |
 | `-y`, `--yes` | Don't prompt; use defaults (backup = yes). |
 | `--force` | Overwrite without backups and without prompts. |
+| `--rollback` | Reinstall the baseline, then remove the research-workflow files an earlier version added. |
 | `--no-color` | Plain output. |
 
 Requirements: `tar` plus `curl` or `wget` on PATH (standard on Linux/macOS).
@@ -58,6 +59,22 @@ git clone --depth 1 https://github.com/thieunv96/avn.git
 ```
 
 When run from a clone, the script installs the local files directly (no download).
+
+## Rolling back
+
+An earlier version of the baseline also installed a research workflow
+(`.claude/agents/{impact,security}-research.md` and `.claude/skills/research/`). If a repo picked
+that up and you want it gone, run the installer with `--rollback`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/thieunv96/avn/master/install.sh | bash -s -- --rollback /path/to/repo
+# or from a clone:
+./avn/install.sh --rollback /path/to/repo
+```
+
+It reinstalls the current baseline (restoring `CLAUDE.md` and the rest) and then deletes those
+research files, pruning the now-empty `agents/` and `skills/` directories. Your own agents or skills
+are never touched. Preview first with `--rollback --dry-run`.
 
 ## Notes
 

@@ -19,13 +19,14 @@ FORCE=0
 ASSUME_YES=0
 BACKUP_OPT=""          # "", "yes", or "no"
 NO_COLOR_FLAG=0
+ROLLBACK=0
 TARGET=""
 AVN_REPO="${AVN_REPO:-thieunv96/avn}"
 AVN_REF="${AVN_REF:-master}"
 DL_DIR=""
 TMP_SETTINGS=""
 
-N_CREATE=0; N_UPDATE=0; N_UNCHANGED=0; N_BACKUP=0
+N_CREATE=0; N_UPDATE=0; N_UNCHANGED=0; N_BACKUP=0; N_REMOVE=0
 
 usage() {
   cat <<'EOF'
@@ -43,6 +44,8 @@ Options:
   --no-backup    Overwrite without backups (no prompt).
   -y, --yes      Don't prompt; use defaults (backup = yes).
   --force        Overwrite without backups and without any prompt.
+  --rollback     Roll back: reinstall the baseline, then remove the research-workflow files
+                 (.claude/agents/{impact,security}-research.md, .claude/skills/research/).
   --no-color     Disable colored output.
   -h, --help     Show this help.
 
@@ -66,6 +69,7 @@ while [ $# -gt 0 ]; do
     --no-backup) BACKUP_OPT="no" ;;
     -y|--yes)    ASSUME_YES=1 ;;
     --force)     FORCE=1 ;;
+    --rollback)  ROLLBACK=1 ;;
     --no-color)  NO_COLOR_FLAG=1 ;;
     -h|--help)   usage; exit 0 ;;
     --) shift; break ;;
@@ -238,6 +242,7 @@ printf '\n%b▸ Asilla Claude Code baseline%b\n' "$BOLD" "$RST"
 printf '  %ssource%s  %s\n' "$DIM" "$RST" "$SRC_DESC"
 printf '  %starget%s  %s\n' "$DIM" "$RST" "$TARGET_ABS"
 [ "$DRY_RUN" -eq 1 ] && printf '  %b(dry-run — no changes will be made)%b\n' "$YLW" "$RST"
+[ "$ROLLBACK" -eq 1 ] && printf '  %brollback — research-workflow files will be removed after install%b\n' "$YLW" "$RST"
 
 # ---- Decide backup policy ----
 overwrite_n=0
@@ -284,13 +289,34 @@ if [ -f "$GI" ]; then
   done
 fi
 
+# ---- Rollback: remove research-workflow files a previous version installed ----
+if [ "$ROLLBACK" -eq 1 ]; then
+  for rf in ".claude/agents/impact-research.md" \
+            ".claude/agents/security-research.md" \
+            ".claude/skills/research/SKILL.md"; do
+    if [ -f "$TARGET_ABS/$rf" ]; then
+      line "$RED" "-" "remove" "$rf"
+      [ "$DRY_RUN" -eq 1 ] || rm -f "$TARGET_ABS/$rf"
+      N_REMOVE=$((N_REMOVE+1))
+    fi
+  done
+  # prune dirs only if now empty (rmdir refuses non-empty dirs — never touches user files)
+  [ "$DRY_RUN" -eq 1 ] || rmdir "$TARGET_ABS/.claude/skills/research" \
+    "$TARGET_ABS/.claude/skills" "$TARGET_ABS/.claude/agents" 2>/dev/null || true
+fi
+
 # ---- Summary ----
 printf '\n'
 if [ "$DRY_RUN" -eq 1 ]; then
-  printf '%b▸ dry-run complete%b — nothing was written.\n' "$BOLD$YLW" "$RST"
+  if [ "$ROLLBACK" -eq 1 ]; then
+    printf '%b▸ dry-run complete%b — nothing was written or removed.\n' "$BOLD$YLW" "$RST"
+  else
+    printf '%b▸ dry-run complete%b — nothing was written.\n' "$BOLD$YLW" "$RST"
+  fi
 else
   printf '%b✓ done%b  %screated %d · updated %d · unchanged %d' "$BOLD$GRN" "$RST" "$DIM" "$N_CREATE" "$N_UPDATE" "$N_UNCHANGED"
   [ "$N_BACKUP" -gt 0 ] && printf ' · backed up %d' "$N_BACKUP"
+  [ "$N_REMOVE" -gt 0 ] && printf ' · removed %d' "$N_REMOVE"
   printf '%b\n' "$RST"
 fi
 printf '  %bnext%b open Claude Code here and run %b/permissions%b to review the rules.\n' "$DIM" "$RST" "$CYN" "$RST"
