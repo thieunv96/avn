@@ -36,6 +36,7 @@ Implement, then Verify and report.
 - Read the relevant existing code before writing any. Reuse existing patterns (see §3).
 - **Always use a sub-agent for web research and for exploring a large or unfamiliar codebase.** It works in its own context and returns only the findings, keeping the main context focused. Reading a few known files directly is fine; broad searching and web research are not.
 - Launch independent sub-agents in parallel when their searches do not depend on each other.
+- For a raw idea or a problem with no known solution yet, run the `/brainstorm` skill: it interviews the user, researches options in parallel, and produces a spec.
 
 ### Clarify the spec (spec-driven)
 
@@ -65,6 +66,9 @@ Non-trivial work includes multi-file changes, public API changes, database chang
 auth/permission changes, CI/CD changes, production/customer-system changes, performance-critical
 code, or unclear business logic.
 
+Assumptions about business intent must be confirmed with the user (AskUserQuestion) before
+implementing — never proceed on a guess about what the user meant.
+
 ### Implement (test-driven, pragmatically)
 
 - **Business logic and bug fixes: TDD.** Write tests from the acceptance criteria first, confirm
@@ -93,6 +97,8 @@ Before editing, inspect the relevant existing code and reuse what is there:
 
 - Similar implementations, naming conventions, error handling.
 - Existing test style, API response format, UI/component patterns, config/env patterns.
+- **Shared code:** before editing anything used from more than one place, find every caller/usage (grep the symbol, check exports/imports) and account for each in the plan.
+- **Pattern sweep:** when you change a convention, pattern, or signature, search for all similar occurrences and update them too — or list the ones you left and why (mirrors the §10 bug-fix sweep).
 
 Do not implement from memory when the repository already has an example.
 
@@ -127,6 +133,10 @@ Always ask before:
 ## 6. Git and repository etiquette
 
 - Never commit directly to `main` or `master` (the hook also blocks pushes to them).
+- **Work in the current checkout.** Do not create a git worktree or clone to read, code, or edit
+  unless the user explicitly asks for one — a branch is enough isolation for normal work. If the
+  environment itself enforces worktree isolation (e.g. background jobs), state that up front and
+  report exactly where the work landed (worktree path + branch) so nothing gets lost.
 - Branch names: `feat/short-description`, `fix/…`, `chore/…`, `refactor/…`.
 - Check `git status` / `git diff` before editing; review your own diff after. Do not overwrite the user's uncommitted changes.
 - Commit only when the user explicitly asks. Use Conventional Commits in English and keep commits focused (do not mix unrelated changes):
@@ -160,6 +170,14 @@ boxes, remote hosts, clusters, databases, devices, cameras, shared environments)
 - Do not connect directly to production databases, or deploy manually from a Claude Code session, unless explicitly instructed.
 - For edge devices, list the affected devices and get confirmation before any mass edit/push.
 
+### Data-risk assessment
+
+Required **before proposing or performing** any mutating action on a non-local or shared data
+store. State: (1) the affected data — tables/keys/volumes and approximate scale; (2) whether a
+backup exists and how that was verified; (3) the rollback plan; (4) the blast radius — what else
+reads this data; (5) a dry-run or limited-scope variant to run first. If any of these is unknown,
+stop and ask.
+
 ---
 
 ## 9. Realtime, performance, and UI
@@ -180,6 +198,7 @@ Verification is required before claiming a task is done. **Never claim completio
 actually verified.**
 
 - Use the project's existing commands (from `package.json`, `Makefile`, `pyproject.toml`, `pytest.ini`, CI config, README). Do not invent commands the repo does not define.
+- The `/verify` skill discovers and runs all layers and produces the report below.
 - **Keep the entire test suite up to date.** When code changes, update every affected test to match the latest behavior — never leave stale, skipped, or commented-out tests.
 - **Always run the full test suite after every change, however small** (plus lint / typecheck / build), and confirm it is green before reporting. Do not settle for running only the tests near your change.
 

@@ -3,8 +3,11 @@
 A shared Claude Code configuration baseline for Asilla projects:
 
 - `CLAUDE.md` — quality-focused working agreement (workflow, scope, secrets, production, testing).
-- `.claude/rules/` — path-scoped rules that load on demand: `ui.md`, `realtime-performance.md`, `testing.md`.
-- `.claude/hooks/bash-guard.sh` — PreToolUse hook that deterministically blocks dangerous Bash commands.
+- `.claude/rules/` — path-scoped rules that load on demand: `ui.md`, `realtime-performance.md`, `testing.md`, `migrations.md`.
+- `.claude/skills/` — invocable workflows: `/brainstorm` (idea → spec), `/code-review` (independent review in a fresh context), `/verify` (run all verification layers, report evidence).
+- `.claude/hooks/bash-guard.sh` — PreToolUse hook that deterministically blocks dangerous Bash commands (push to main, `rm -rf`, secret reads, destructive SQL/redis/mongo/docker/kubectl, `git clean -f`, …).
+- `.claude/hooks/verify-gate.sh` — Stop hook that can enforce "tests green before finishing"; **dormant by default** (see below).
+- `.claude/verify-commands.example` — template for opting in to the verify gate.
 - `.claude/settings.json` — permission baseline (allow / ask / deny) plus the hook wiring.
 
 ## Install — one command, no clone needed
@@ -22,10 +25,11 @@ curl -fsSL https://raw.githubusercontent.com/thieunv96/avn/master/install.sh | b
 curl -fsSL https://raw.githubusercontent.com/thieunv96/avn/master/install.sh | bash -s -- --dry-run /path/to/repo
 ```
 
-The script downloads the baseline from GitHub, copies the four pieces above into the target repo,
-and **rewrites the hook command to `${CLAUDE_PROJECT_DIR}/.claude/hooks/bash-guard.sh`** so the
-baseline is self-contained per repo. It is safe to re-run (idempotent) and appends `CLAUDE.local.md` /
-`.claude/settings.local.json` to an existing `.gitignore` if missing.
+The script downloads the baseline from GitHub and copies the pieces above into the target repo.
+`settings.json` ships as-is — its hook commands already use `${CLAUDE_PROJECT_DIR}`, so the
+baseline is self-contained per repo (and protects this repo itself, too). It is safe to re-run
+(idempotent) and adds `CLAUDE.local.md` / `.claude/settings.local.json` to `.gitignore`
+(creating the file if needed).
 
 When a file would be overwritten, you get an arrow-key menu asking whether to back it up first
 (default: **Yes** → `<file>.bak`). Control it non-interactively with flags:
@@ -59,6 +63,31 @@ git clone --depth 1 https://github.com/thieunv96/avn.git
 
 When run from a clone, the script installs the local files directly (no download).
 
+## Day-to-day usage
+
+| Situation | Practice |
+| --- | --- |
+| Raw idea, no clear solution yet | `/brainstorm` — interviews you, researches options, produces a spec |
+| Non-trivial task | Plan Mode + the spec-driven Clarify/Plan steps (CLAUDE.md §2) |
+| Risky data operation (DB, volumes, prod-like systems) | Data-risk assessment first (CLAUDE.md §8); the hook blocks the worst commands outright |
+| Finished coding | `/verify` — runs every layer the project defines, reports evidence |
+| Before a PR / after non-trivial changes | `/code-review` — independent review in a fresh context |
+| Changed a convention/pattern/signature | Pattern sweep (CLAUDE.md §3) — update or list all similar occurrences |
+
+## Optional: enforced verification on Stop
+
+The baseline wires a Stop hook (`verify-gate.sh`) that is a **no-op until you opt in**:
+
+```bash
+cp .claude/verify-commands.example .claude/verify-commands
+# then uncomment/add the commands your project actually defines
+```
+
+With the file present, Claude Code cannot end a coding turn while any listed command fails.
+The gate skips read-only turns (clean git tree), skips non-git directories, and gives up after
+3 consecutive blocks (asking Claude to report failures honestly) so it can never loop forever.
+Delete `.claude/verify-commands` to turn it off.
+
 ## Updating / reconciling
 
 **Just re-run the installer** (the same way you first installed it) to bring a repo **exactly** up
@@ -66,14 +95,14 @@ to the current baseline. It updates changed files and also removes files the bas
 dropped, so an older install is fully reconciled — no special flag needed.
 
 > An earlier version shipped a research workflow (`.claude/agents/{impact,security}-research.md` and
-> `.claude/skills/research/`). A normal re-run now deletes those and prunes the empty `agents/` /
-> `skills/` directories. Only baseline files that are no longer part of the baseline are removed —
-> your own agents or skills are never touched. Preview with `--dry-run`.
+> `.claude/skills/research/`). A normal re-run deletes those — but only when the file content is
+> byte-identical (sha256) to what that old baseline shipped. A same-named file you wrote yourself
+> is kept, and your own agents or skills are never touched. Preview with `--dry-run`.
 
 ## Notes
 
 - Project `.claude/settings.json` permissions **merge** with your user-level `~/.claude/settings.json`
-  (they do not clobber it).
+  (they do not clobber it). A deny rule at either level always wins.
 - Run the `curl | bash` bootstrap in a **normal terminal**, not inside a Claude Code session that is
   already governed by this baseline: the baseline's own deny-list blocks `curl`/`wget` and the hook
   blocks `curl | sh`. (Bootstrapping a fresh repo from a plain shell is the expected flow.)
