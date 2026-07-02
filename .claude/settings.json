@@ -1,5 +1,5 @@
 {
-  "$comment": "Asilla company baseline — ~/.claude/settings.json. Rule syntax: Bash uses exact or prefix match with ':*' (NOT regex). Read/Edit use gitignore-style paths. Precedence: deny > ask > allow. Verify rules after install with /permissions inside Claude Code.",
+  "$comment": "Asilla company baseline — .claude/settings.json (project-level, shipped as-is by install.sh). Rule syntax: Bash uses exact or prefix match with ':*' (NOT regex). Read/Edit use gitignore-style paths. Precedence: deny > ask > allow. Hook paths use ${CLAUDE_PROJECT_DIR} so every repo (including this one) is guarded. Verify rules after install with /permissions inside Claude Code.",
 
   "permissions": {
 
@@ -66,7 +66,7 @@
     ],
 
     "allow": [
-      "Bash(git status)",
+      "Bash(git status:*)",
       "Bash(git diff:*)",
       "Bash(git log:*)",
       "Bash(git branch:*)",
@@ -74,7 +74,7 @@
       "Bash(git stash:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(npm test)",
+      "Bash(npm test:*)",
       "Bash(npm run test:*)",
       "Bash(npm run lint:*)",
       "Bash(npm run build:*)",
@@ -108,7 +108,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/hooks/bash-guard.sh"
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/bash-guard.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/verify-gate.sh",
+            "timeout": 600
           }
         ]
       }

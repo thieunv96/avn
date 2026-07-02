@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # install.sh — install the Asilla Claude Code baseline into a target repo.
 #
-# Copies CLAUDE.md + .claude/{rules,hooks,settings.json} into TARGET_DIR and
-# rewrites the hook command to be project-relative (${CLAUDE_PROJECT_DIR}) so the
-# baseline is fully self-contained per repo.
+# Copies CLAUDE.md + .claude/{rules,hooks,skills,agents,settings.json} and
+# .claude/verify-commands.example into TARGET_DIR. settings.json ships as-is:
+# its hook commands already use ${CLAUDE_PROJECT_DIR}, so the baseline is fully
+# self-contained per repo (no rewrite step). A real .claude/verify-commands is
+# never installed — enabling the verify gate is a per-repo opt-in.
 #
 # Two ways to run:
 #   • From a clone:   ./install.sh [TARGET_DIR]
@@ -23,7 +25,6 @@ TARGET=""
 AVN_REPO="${AVN_REPO:-thieunv96/avn}"
 AVN_REF="${AVN_REF:-master}"
 DL_DIR=""
-TMP_SETTINGS=""
 
 N_CREATE=0; N_UPDATE=0; N_UNCHANGED=0; N_BACKUP=0; N_REMOVE=0
 
@@ -53,8 +54,10 @@ Env:
   AVN_REPO       GitHub owner/repo to fetch when run without a clone (default: thieunv96/avn).
   AVN_REF        Branch or tag to fetch (default: master).
 
-Installs CLAUDE.md, .claude/rules/*.md, .claude/hooks/bash-guard.sh (executable),
-and .claude/settings.json (hook path rewritten to ${CLAUDE_PROJECT_DIR}).
+Installs CLAUDE.md, .claude/rules/*.md, .claude/skills/** (brainstorm,
+code-review, verify), .claude/agents/*.md (if any), the hooks bash-guard.sh and
+verify-gate.sh (executable), .claude/verify-commands.example, and
+.claude/settings.json (shipped as-is; hook paths use ${CLAUDE_PROJECT_DIR}).
 EOF
 }
 
@@ -103,7 +106,6 @@ line() {
 
 cleanup() {
   [ -n "$DL_DIR" ] && [ -d "$DL_DIR" ] && rm -rf "$DL_DIR"
-  [ -n "$TMP_SETTINGS" ] && [ -f "$TMP_SETTINGS" ] && rm -f "$TMP_SETTINGS"
   return 0
 }
 trap cleanup EXIT
@@ -154,6 +156,7 @@ menu_select() {
 # install_file SRC_FILE DEST_FILE  (uses DO_BACKUP, DRY_RUN)
 install_file() {
   local s="$1" d="$2" r; r="$(rel "$d")"
+  [ "$DRY_RUN" -eq 1 ] || mkdir -p "$(dirname "$d")"
   if [ -f "$d" ]; then
     if cmp -s "$s" "$d"; then
       line "$DIM" "=" "unchanged" "$r"; N_UNCHANGED=$((N_UNCHANGED+1)); return 0
@@ -207,23 +210,16 @@ fi
 if [ "$TARGET_ABS" = "$SRC" ]; then
   printf '%b✗%b target is the baseline source itself (%s). Choose another repo.\n' "$RED" "$RST" "$SRC" >&2; exit 1
 fi
-for f in "CLAUDE.md" ".claude/settings.json" ".claude/hooks/bash-guard.sh"; do
+for f in "CLAUDE.md" ".claude/settings.json" ".claude/hooks/bash-guard.sh" ".claude/hooks/verify-gate.sh"; do
   if [ -z "${SRC:-}" ] || [ ! -f "$SRC/$f" ]; then
     printf '%b✗%b baseline source is missing %s\n' "$RED" "$RST" "$f" >&2; exit 1
   fi
 done
 
-# ---- Prepare the rewritten settings.json (hook path -> project-relative) ----
-# Only the hook command is rewritten. The deny rules Edit(~/.claude/settings.json) and
-# Edit(~/.claude/hooks/**) are intentionally left as-is — they protect the user's global config.
-TMP_SETTINGS="$(mktemp)"
-sed 's#~/\.claude/hooks/bash-guard\.sh#${CLAUDE_PROJECT_DIR}/.claude/hooks/bash-guard.sh#g' \
-    "$SRC/.claude/settings.json" > "$TMP_SETTINGS"
-if ! grep -qF '${CLAUDE_PROJECT_DIR}/.claude/hooks/bash-guard.sh' "$TMP_SETTINGS"; then
-  printf '%b⚠%b could not rewrite the hook path in settings.json — verify it after install.\n' "$YLW" "$RST" >&2
-fi
-
 # ---- Build the file plan ----
+# settings.json ships as-is: hook commands already use ${CLAUDE_PROJECT_DIR}.
+# The deny rules Read/Edit(~/.claude/**) intentionally point at the user's HOME
+# and must never be rewritten — they protect the user's global config.
 SRCS=(); DESTS=()
 add_pair() { SRCS+=("$1"); DESTS+=("$2"); }
 add_pair "$SRC/CLAUDE.md" "$TARGET_ABS/CLAUDE.md"
@@ -231,8 +227,19 @@ for r in "$SRC"/.claude/rules/*.md; do
   [ -e "$r" ] || continue
   add_pair "$r" "$TARGET_ABS/.claude/rules/$(basename "$r")"
 done
+for a in "$SRC"/.claude/agents/*.md; do
+  [ -e "$a" ] || continue
+  add_pair "$a" "$TARGET_ABS/.claude/agents/$(basename "$a")"
+done
+if [ -d "$SRC/.claude/skills" ]; then
+  while IFS= read -r sk; do
+    add_pair "$sk" "$TARGET_ABS/${sk#"$SRC"/}"
+  done < <(find "$SRC/.claude/skills" -type f | sort)
+fi
 add_pair "$SRC/.claude/hooks/bash-guard.sh" "$TARGET_ABS/.claude/hooks/bash-guard.sh"
-add_pair "$TMP_SETTINGS" "$TARGET_ABS/.claude/settings.json"
+add_pair "$SRC/.claude/hooks/verify-gate.sh" "$TARGET_ABS/.claude/hooks/verify-gate.sh"
+add_pair "$SRC/.claude/verify-commands.example" "$TARGET_ABS/.claude/verify-commands.example"
+add_pair "$SRC/.claude/settings.json" "$TARGET_ABS/.claude/settings.json"
 
 # ---- Header ----
 printf '\n%b▸ Asilla Claude Code baseline%b\n' "$BOLD" "$RST"
@@ -272,35 +279,52 @@ printf '\n'
 for i in "${!DESTS[@]}"; do
   install_file "${SRCS[$i]}" "${DESTS[$i]}"
 done
-[ "$DRY_RUN" -eq 1 ] || chmod +x "$TARGET_ABS/.claude/hooks/bash-guard.sh"
+[ "$DRY_RUN" -eq 1 ] || chmod +x "$TARGET_ABS/.claude/hooks/bash-guard.sh" \
+                                 "$TARGET_ABS/.claude/hooks/verify-gate.sh"
 
-# .gitignore — append Claude lines only if the file already exists and is missing them
+# .gitignore — append Claude lines when missing (creates the file if absent)
 GI="$TARGET_ABS/.gitignore"
-if [ -f "$GI" ]; then
-  for ln in "CLAUDE.local.md" ".claude/settings.local.json"; do
-    if ! grep -qxF "$ln" "$GI"; then
-      line "$CYN" "✎" "gitignore" "+= $ln"
-      [ "$DRY_RUN" -eq 1 ] || printf '%s\n' "$ln" >> "$GI"
-    fi
-  done
-fi
+for ln in "CLAUDE.local.md" ".claude/settings.local.json"; do
+  if [ ! -f "$GI" ] || ! grep -qxF "$ln" "$GI"; then
+    line "$CYN" "✎" "gitignore" "+= $ln"
+    [ "$DRY_RUN" -eq 1 ] || printf '%s\n' "$ln" >> "$GI"
+  fi
+done
 
 # ---- Reconcile: remove files the baseline has dropped (legacy research workflow) ----
-# Runs on every install so an older install is brought exactly up to date. Only files that are
-# in the target but NOT in the current baseline source are removed; if the baseline ever ships
-# these again, the [ ! -e "$SRC/$rf" ] guard keeps them (the copy loop above installs them).
+# Runs on every install so an older install is brought exactly up to date. A file is removed
+# only when (a) it is in the target but NOT in the current baseline source, AND (b) its sha256
+# matches the exact content the old baseline shipped (commit 6d5418d) — a same-named file with
+# different content is user-made and is kept. If the baseline ever ships these paths again, the
+# [ ! -e "$SRC/$rf" ] guard keeps them (the copy loop above installs them).
+legacy_sha() {
+  case "$1" in
+    ".claude/agents/impact-research.md")   echo "3166e8b7a972aade3c4655b251787097eac0b308071a2579814b5915563e02ea" ;;
+    ".claude/agents/security-research.md") echo "22f3cba74273063f96379b8bb815a1e0a24f10d5a9c07f489fe6f31d6fa71d50" ;;
+    ".claude/skills/research/SKILL.md")    echo "b0d09c2604255b285d7463299a88810e9a1670105ecced47d7076332c06eb2c7" ;;
+  esac
+}
+file_sha() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -d' ' -f1
+  else echo "unavailable"; fi   # never matches a real hash -> file is kept (safe direction)
+}
 for rf in ".claude/agents/impact-research.md" \
           ".claude/agents/security-research.md" \
           ".claude/skills/research/SKILL.md"; do
   if [ -f "$TARGET_ABS/$rf" ] && [ ! -e "$SRC/$rf" ]; then
-    line "$RED" "-" "remove" "$rf"
-    [ "$DRY_RUN" -eq 1 ] || rm -f "$TARGET_ABS/$rf"
-    N_REMOVE=$((N_REMOVE+1))
+    if [ "$(file_sha "$TARGET_ABS/$rf")" = "$(legacy_sha "$rf")" ]; then
+      line "$RED" "-" "remove" "$rf"
+      [ "$DRY_RUN" -eq 1 ] || rm -f "$TARGET_ABS/$rf"
+      N_REMOVE=$((N_REMOVE+1))
+    else
+      line "$YLW" "⚠" "keep" "$rf (same name as a dropped baseline file but content differs — looks user-made)"
+    fi
   fi
 done
-# prune dirs only if now empty (rmdir refuses non-empty dirs — never touches user files)
+# prune legacy dirs only if now empty (rmdir refuses non-empty dirs — never touches user files)
 [ "$DRY_RUN" -eq 1 ] || rmdir "$TARGET_ABS/.claude/skills/research" \
-  "$TARGET_ABS/.claude/skills" "$TARGET_ABS/.claude/agents" 2>/dev/null || true
+  "$TARGET_ABS/.claude/agents" 2>/dev/null || true
 
 # ---- Summary ----
 printf '\n'
