@@ -97,6 +97,11 @@
     ]
   },
 
+  "$comment-env": "CLAUDE_AFK_TIMEOUT_MS disables the 60s AskUserQuestion auto-advance ('AFK mode') introduced unannounced in Claude Code v2.1.198, which made interview flows (/brainstorm) proceed without the user's answer. Undocumented var (github.com/anthropics/claude-code/issues/73125); versions without AFK ignore it harmlessly. If your Claude Code exposes a question-timeout toggle in /config, keep it OFF.",
+  "env": {
+    "CLAUDE_AFK_TIMEOUT_MS": "2147483647"
+  },
+
   "defaultMode": "default",
   "enableAllProjectMcpServers": false,
   "cleanupPeriodDays": 30,

@@ -88,6 +88,16 @@ The gate skips read-only turns (clean git tree), skips non-git directories, and 
 3 consecutive blocks (asking Claude to report failures honestly) so it can never loop forever.
 Delete `.claude/verify-commands` to turn it off.
 
+## Troubleshooting
+
+**The AI doesn't wait for your answers during `/brainstorm` (or any AskUserQuestion) and decides
+by itself** — Claude Code v2.1.198+ added a 60s "AFK" auto-advance to unanswered questions
+([#73125](https://github.com/anthropics/claude-code/issues/73125)). The baseline disables it via
+`env.CLAUDE_AFK_TIMEOUT_MS` in `.claude/settings.json`; if your Claude Code version shows a
+question-timeout toggle in `/config`, keep it OFF. Also: run `/brainstorm` only in an interactive
+session — in background/headless runs the question tool cannot collect answers, and the skill is
+instructed to stop and ask in plain text instead.
+
 ## Updating / reconciling
 
 **Just re-run the installer** (the same way you first installed it) to bring a repo **exactly** up
