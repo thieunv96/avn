@@ -12,6 +12,12 @@
 # exit 0 for the turn to end. The gate skips read-only turns (clean git tree)
 # and gives up after 3 consecutive blocks so it can never loop forever.
 #
+# Only list commands that run in the LOCAL environment where Claude Code runs
+# (fast, deterministic). Do not list a browser-driven e2e command if this
+# environment cannot drive a browser (e.g. a sandboxed session) — the gate
+# would block 3 times per turn for nothing. Keep such e2e on CI/dev instead
+# (see CLAUDE.md §10 "When the environment cannot run e2e").
+#
 # Node:
 #npm run lint
 #npm run typecheck

@@ -201,6 +201,7 @@ actually verified.**
 - The `/verify` skill discovers and runs all layers and produces the report below.
 - **Keep the entire test suite up to date.** When code changes, update every affected test to match the latest behavior — never leave stale, skipped, or commented-out tests.
 - **Always run the full test suite after every change, however small** (plus lint / typecheck / build), and confirm it is green before reporting. Do not settle for running only the tests near your change.
+- **Test the change and everything it can impact — nothing else.** When *authoring* tests or driving e2e for a change, cover the changed behavior in depth — its edge cases, and every flow the change can plausibly affect (callers of changed code, shared components/utilities — the §3 shared-code sweep tells you which). The boundary is impact, not the changed lines: skip only scenarios the change cannot affect; do not pad suites with speculative cases unrelated to the change. (Running the existing full suite is still required — this rule is about where new testing effort goes.)
 
 ### Test layers
 
@@ -209,7 +210,7 @@ Run every layer — the full suite — for every change, small or large:
 - **Lint / format / typecheck** — always, for any code change.
 - **Unit** — pure logic in isolation; fast. The default for business logic.
 - **Integration** — several real components together (DB, services, pipeline stages).
-- **End-to-end (e2e)** — a full user/flow path against the real running app. **For applications, always test through a real automation tool (Playwright, Puppeteer, Cypress, …)** that drives the actual UI/API — do not fake it with mocks.
+- **End-to-end (e2e)** — a full user/flow path against the real running app. **For applications, always test through a real automation tool (Playwright, Puppeteer, Cypress, …)** that drives the actual UI/API — do not fake it with mocks. **Scope e2e to the flow(s) the change touches or can impact**: their happy path plus the failure and edge cases that matter for the change. Do not wander into flows the change cannot affect or write exhaustive scenario matrices — focused scenarios covering the change and its blast radius beat a sprawling suite.
 
 A passing build, a linter, a script diffing output against a fixture, or a screenshot compared to a
 design all count as verification gates.
@@ -223,10 +224,28 @@ treat the data you create as a guest:
 - **Clean up after the run**: delete exactly the data you created — nothing else. Never touch or delete pre-existing or developer data.
 - If you cannot reliably isolate and remove what you create, **stop and ask** first; prefer an isolated or ephemeral environment when one is available.
 
+### When the environment cannot run e2e
+
+Some environments (sandboxed sessions, headless CI shells) cannot drive a browser. Detect this
+quickly instead of fighting it:
+
+1. **Probe once, time-boxed**: run ONE existing known-good spec (a smoke/login spec) with a hard
+   timeout (e.g. `timeout 120 npx playwright test <smoke-spec>`). If a spec that passes on CI
+   hangs or fails on browser launch/interaction here, the environment is the cause — not the
+   feature, not the spec.
+2. **Do not loop on it**: no repeated retries, no reinstalling browsers, no rewriting the spec to
+   dodge the hang. One retry outside the sandbox (with user approval) is the only escalation.
+3. **Still write the e2e spec** for the change so CI/dev covers it; verify locally with the
+   strongest layers that do run (typecheck, build, unit/component/integration, API-level checks).
+4. **Report it as "Not run"** with the probe evidence and the exact command for the user to run
+   on CI/dev — e.g. `Not run: e2e — browser automation hangs in this sandbox (probe:
+   auth.spec.ts timed out); run 'pnpm e2e' on CI or a dev machine.` This is an honest, complete
+   report — not a failure to verify.
+
 ### By change type
 
 - **Bug fix — systematic debugging:** **reproduce first (always)** → isolate → find the root cause (not the symptom) → fix the smallest relevant path → **sweep the codebase for the same root cause/pattern elsewhere and fix every occurrence** (or list any you intentionally leave, with the reason) → add a regression test and run it → run broader checks. Report: root cause / other affected sites / fix / regression coverage / verified.
-- **New feature:** verify the happy path, important edge cases, invalid input, and — for UI/API — empty/error states and permission/auth behavior. Add or update tests for it (cover application UI/flows with a real e2e test, see above); the only exception is a docs-only change or a project with no test setup.
+- **New feature:** verify the happy path, important edge cases, invalid input, and — for UI/API — empty/error states and permission/auth behavior. Pick the cases that matter for the changed behavior and what it can impact — not an exhaustive matrix of unrelated combinations. Add or update tests for it (cover application UI/flows with a real e2e test, see above); the only exception is a docs-only change or a project with no test setup.
 - **Refactor:** preserve behavior. Run the same checks before and after when practical and confirm they are unchanged.
 
 ### Reporting

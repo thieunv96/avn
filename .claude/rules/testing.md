@@ -17,12 +17,13 @@ write a test once you are in a test file.
 - One behavior per test. Keep tests independent — no shared mutable state, no reliance on order.
 - **Deterministic**: no dependence on wall-clock time, network, randomness, or external services. Inject or fake those.
 - **Avoid over-mocking**: mock at the boundary (I/O, network, time), not internal logic. Over-mocked tests pass while the code is broken.
+- **Stay on target**: cover the behavior under change and everything it can impact — happy path, its edge cases, and affected callers/shared components. Skip only what the change cannot affect: no tests for unrelated behavior or speculative edge cases, and reuse existing fixtures/helpers instead of building new test infrastructure.
 
 ## Which layer
 
 - **Unit** — pure logic in isolation; fast; the bulk of tests.
 - **Integration** — several real components together (DB, service, pipeline stage).
-- **End-to-end** — a full user/flow path through a real automation tool (Playwright/Puppeteer/Cypress); few, high-value.
+- **End-to-end** — a full user/flow path through a real automation tool (Playwright/Puppeteer/Cypress); few, high-value, scoped to the flows the change touches or can impact.
 
 ## Data created by e2e on a shared environment
 

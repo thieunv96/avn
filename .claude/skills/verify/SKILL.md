@@ -25,11 +25,19 @@ If a layer has no command, it is reported as "Not run", not faked.
 
 Run the full suite for each discovered layer — lint/format, typecheck, unit,
 integration, e2e — not just the tests near the change (CLAUDE.md §10).
+Run the e2e layer with a hard timeout (e.g. `timeout 600 <e2e command>`) so a
+hanging browser cannot stall the whole verification.
 
 ## 3. On failure
 
 Fix it if it is within the task's scope; otherwise report the root cause and
 stop. **Never delete, skip, or weaken a test to go green.**
+
+Infrastructure failure ≠ test failure: if the e2e layer hangs or dies on
+browser launch/interaction (probe an existing known-good spec to confirm — see
+CLAUDE.md §10 "When the environment cannot run e2e"), report that layer as
+`Not run: e2e — <probe evidence>; run <cmd> on CI/dev` and continue with the
+remaining layers. Do not retry in a loop.
 
 ## 4. Report
 
