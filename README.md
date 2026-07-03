@@ -9,6 +9,8 @@ A shared Claude Code configuration baseline for Asilla projects:
 - `.claude/hooks/verify-gate.sh` — Stop hook that can enforce "tests green before finishing"; **dormant by default** (see below).
 - `.claude/verify-commands.example` — template for opting in to the verify gate.
 - `.claude/settings.json` — permission baseline (allow / ask / deny) plus the hook wiring.
+- `VERSION` + `bin/avn` — SemVer for the baseline and a pip-style manager CLI (`avn install` /
+  `update` / `check`); each install stamps `.claude/avn-version` into the target repo.
 
 ## Install — one command, no clone needed
 
@@ -63,6 +65,45 @@ git clone --depth 1 https://github.com/thieunv96/avn.git
 
 When run from a clone, the script installs the local files directly (no download).
 
+## Versioning & the `avn` CLI
+
+The baseline is versioned with SemVer: the `VERSION` file is the single source of truth, and every
+install writes a stamp to `.claude/avn-version` in the target repo (version + source). **Commit the
+stamp** — the whole team then sees which baseline the repo runs, and upgrades show up in git
+history. The installer header and summary show the version change (`2.0.0 → 2.1.0`).
+
+`bin/avn` is a pip-style manager around the installer. Install it once (normal terminal):
+
+```bash
+mkdir -p ~/.local/bin && curl -fsSL https://raw.githubusercontent.com/thieunv96/avn/master/bin/avn -o ~/.local/bin/avn && chmod +x ~/.local/bin/avn
+```
+
+(or from a clone: `./avn/bin/avn self-install`). Then, inside any repo:
+
+| Command | Effect |
+| --- | --- |
+| `avn install [DIR]` | Install the baseline / bring it up to date. |
+| `avn update [DIR]` | Same, but refuses a repo that was never installed (no stamp). |
+| `avn check [DIR]` | Compare the stamp with the latest `VERSION` on GitHub. Exit 0 = up to date, 1 = outdated, 2 = error (no stamp / network) — CI can rely on 0/1. |
+| `avn version` | CLI version + the baseline version of the current repo. |
+| `avn self-update` | Replace the `avn` script itself with the latest from GitHub. |
+
+Flags after the directory pass through to `install.sh` (`--dry-run`, `-y`, `--force`, …).
+
+**Pinning**: `AVN_REF` (and `avn --ref`) accepts a branch **or a tag**, so a repo can stay on a
+fixed release:
+
+```bash
+avn install --ref v2.1.0
+AVN_REF=v2.1.0 curl -fsSL https://raw.githubusercontent.com/thieunv96/avn/master/install.sh | bash
+```
+
+### Releasing (maintainers)
+
+1. Bump `VERSION` and `AVN_CLI_VERSION` in `bin/avn` (the test suite fails if they diverge).
+2. Run the suites: `bash tests/install-version-test.sh && bash tests/bash-guard-test.sh`.
+3. Commit, then tag and push: `git tag v<version> && git push origin master --tags`.
+
 ## Day-to-day usage
 
 | Situation | Practice |
@@ -100,9 +141,10 @@ instructed to stop and ask in plain text instead.
 
 ## Updating / reconciling
 
-**Just re-run the installer** (the same way you first installed it) to bring a repo **exactly** up
-to the current baseline. It updates changed files and also removes files the baseline has since
-dropped, so an older install is fully reconciled — no special flag needed.
+**Just re-run the installer** (the same way you first installed it) — or run `avn update` — to
+bring a repo **exactly** up to the current baseline. It updates changed files, refreshes the
+`.claude/avn-version` stamp, and also removes files the baseline has since dropped, so an older
+install is fully reconciled — no special flag needed. Not sure whether a repo is stale? `avn check`.
 
 > An earlier version shipped a research workflow (`.claude/agents/{impact,security}-research.md` and
 > `.claude/skills/research/`). A normal re-run deletes those — but only when the file content is

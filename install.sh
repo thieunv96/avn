@@ -7,6 +7,11 @@
 # self-contained per repo (no rewrite step). A real .claude/verify-commands is
 # never installed — enabling the verify gate is a per-repo opt-in.
 #
+# Versioning: the baseline's version lives in the VERSION file next to this
+# script. Each install writes a stamp to TARGET_DIR/.claude/avn-version
+# (version + source; meant to be committed) and the header/summary show the
+# old → new version. AVN_REF accepts a branch or a tag (e.g. v2.1.0).
+#
 # Two ways to run:
 #   • From a clone:   ./install.sh [TARGET_DIR]
 #   • Without a clone (downloads itself from GitHub):
@@ -52,12 +57,14 @@ interactive menu (default: back up). Non-interactive runs back up by default.
 
 Env:
   AVN_REPO       GitHub owner/repo to fetch when run without a clone (default: thieunv96/avn).
-  AVN_REF        Branch or tag to fetch (default: master).
+  AVN_REF        Branch or tag to fetch, e.g. master or v2.1.0 (default: master).
 
 Installs CLAUDE.md, .claude/rules/*.md, .claude/skills/** (brainstorm,
 code-review, verify), .claude/agents/*.md (if any), the hooks bash-guard.sh and
 verify-gate.sh (executable), .claude/verify-commands.example, and
 .claude/settings.json (shipped as-is; hook paths use ${CLAUDE_PROJECT_DIR}).
+Also writes the baseline version to .claude/avn-version (commit this stamp so
+the whole team can see which baseline the repo runs).
 EOF
 }
 
@@ -191,15 +198,19 @@ if [ -n "$SELF_DIR" ] && [ -f "$SELF_DIR/CLAUDE.md" ] && [ -f "$SELF_DIR/.claude
   SRC="$SELF_DIR"; SRC_DESC="local: $SRC"
 else
   command -v tar >/dev/null 2>&1 || { printf '%b✗%b need "tar" to download the baseline\n' "$RED" "$RST" >&2; exit 1; }
+  command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 \
+    || { printf '%b✗%b need "curl" or "wget" to download the baseline\n' "$RED" "$RST" >&2; exit 1; }
   DL_DIR="$(mktemp -d)"
-  URL="https://codeload.github.com/${AVN_REPO}/tar.gz/refs/heads/${AVN_REF}"
+  fetch() {
+    if command -v curl >/dev/null 2>&1; then curl -fsSL "$1" -o "$2"
+    else wget -qO "$2" "$1"
+    fi
+  }
   printf '  %b⇣%b downloading %s@%s ...\n' "$CYN" "$RST" "$AVN_REPO" "$AVN_REF"
-  if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$URL" -o "$DL_DIR/baseline.tgz" || { printf '%b✗%b download failed: %s\n' "$RED" "$RST" "$URL" >&2; exit 1; }
-  elif command -v wget >/dev/null 2>&1; then
-    wget -qO "$DL_DIR/baseline.tgz" "$URL" || { printf '%b✗%b download failed: %s\n' "$RED" "$RST" "$URL" >&2; exit 1; }
-  else
-    printf '%b✗%b need "curl" or "wget" to download the baseline\n' "$RED" "$RST" >&2; exit 1
+  # AVN_REF may be a branch or a tag — codeload uses a different path for each.
+  if ! fetch "https://codeload.github.com/${AVN_REPO}/tar.gz/refs/heads/${AVN_REF}" "$DL_DIR/baseline.tgz" 2>/dev/null; then
+    fetch "https://codeload.github.com/${AVN_REPO}/tar.gz/refs/tags/${AVN_REF}" "$DL_DIR/baseline.tgz" \
+      || { printf '%b✗%b download failed: network error, or no branch/tag "%s" in %s\n' "$RED" "$RST" "$AVN_REF" "$AVN_REPO" >&2; exit 1; }
   fi
   tar -xzf "$DL_DIR/baseline.tgz" -C "$DL_DIR" || { printf '%b✗%b failed to extract baseline archive\n' "$RED" "$RST" >&2; exit 1; }
   SRC=""
@@ -215,6 +226,13 @@ for f in "CLAUDE.md" ".claude/settings.json" ".claude/hooks/bash-guard.sh" ".cla
     printf '%b✗%b baseline source is missing %s\n' "$RED" "$RST" "$f" >&2; exit 1
   fi
 done
+
+# ---- Version bookkeeping ----
+STAMP="$TARGET_ABS/.claude/avn-version"
+NEW_VER="unknown"
+[ -f "$SRC/VERSION" ] && NEW_VER="$(head -n1 "$SRC/VERSION" | tr -d '[:space:]')"
+OLD_VER=""
+[ -f "$STAMP" ] && OLD_VER="$(sed -n 's/^version=//p' "$STAMP" | head -n1)"
 
 # ---- Build the file plan ----
 # settings.json ships as-is: hook commands already use ${CLAUDE_PROJECT_DIR}.
@@ -245,6 +263,13 @@ add_pair "$SRC/.claude/settings.json" "$TARGET_ABS/.claude/settings.json"
 printf '\n%b▸ Asilla Claude Code baseline%b\n' "$BOLD" "$RST"
 printf '  %ssource%s  %s\n' "$DIM" "$RST" "$SRC_DESC"
 printf '  %starget%s  %s\n' "$DIM" "$RST" "$TARGET_ABS"
+if [ -z "$OLD_VER" ]; then
+  printf '  %sversion%s %s (new install)\n' "$DIM" "$RST" "$NEW_VER"
+elif [ "$OLD_VER" = "$NEW_VER" ]; then
+  printf '  %sversion%s %s (unchanged)\n' "$DIM" "$RST" "$NEW_VER"
+else
+  printf '  %sversion%s %s → %s\n' "$DIM" "$RST" "$OLD_VER" "$NEW_VER"
+fi
 [ "$DRY_RUN" -eq 1 ] && printf '  %b(dry-run — no changes will be made)%b\n' "$YLW" "$RST"
 
 # ---- Decide backup policy ----
@@ -281,6 +306,31 @@ for i in "${!DESTS[@]}"; do
 done
 [ "$DRY_RUN" -eq 1 ] || chmod +x "$TARGET_ABS/.claude/hooks/bash-guard.sh" \
                                  "$TARGET_ABS/.claude/hooks/verify-gate.sh"
+
+# ---- Version stamp (written directly, not via install_file: a stamp never
+# needs a .bak and must not trigger the backup prompt) ----
+STAMP_SOURCE="${AVN_SOURCE:-}"
+if [ -z "$STAMP_SOURCE" ]; then
+  case "$SRC_DESC" in
+    remote:*) STAMP_SOURCE="${AVN_REPO}@${AVN_REF}" ;;
+    *)        STAMP_SOURCE="local" ;;
+  esac
+fi
+STAMP_CONTENT="# Asilla Claude Code baseline — written by install.sh; do not edit by hand.
+version=$NEW_VER
+source=$STAMP_SOURCE"
+if [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$STAMP_CONTENT" ]; then
+  line "$DIM" "=" "unchanged" ".claude/avn-version"; N_UNCHANGED=$((N_UNCHANGED+1))
+else
+  if [ -z "$OLD_VER" ]; then
+    line "$GRN" "+" "create" ".claude/avn-version ($NEW_VER)"; N_CREATE=$((N_CREATE+1))
+  elif [ "$OLD_VER" != "$NEW_VER" ]; then
+    line "$YLW" "~" "update" ".claude/avn-version ($OLD_VER → $NEW_VER)"; N_UPDATE=$((N_UPDATE+1))
+  else
+    line "$YLW" "~" "update" ".claude/avn-version (source changed)"; N_UPDATE=$((N_UPDATE+1))
+  fi
+  [ "$DRY_RUN" -eq 1 ] || { mkdir -p "$TARGET_ABS/.claude"; printf '%s\n' "$STAMP_CONTENT" > "$STAMP"; }
+fi
 
 # .gitignore — append Claude lines when missing (creates the file if absent)
 GI="$TARGET_ABS/.gitignore"
@@ -331,7 +381,7 @@ printf '\n'
 if [ "$DRY_RUN" -eq 1 ]; then
   printf '%b▸ dry-run complete%b — nothing was changed.\n' "$BOLD$YLW" "$RST"
 else
-  printf '%b✓ done%b  %screated %d · updated %d · unchanged %d' "$BOLD$GRN" "$RST" "$DIM" "$N_CREATE" "$N_UPDATE" "$N_UNCHANGED"
+  printf '%b✓ done%b  %sbaseline %s · created %d · updated %d · unchanged %d' "$BOLD$GRN" "$RST" "$DIM" "$NEW_VER" "$N_CREATE" "$N_UPDATE" "$N_UNCHANGED"
   [ "$N_BACKUP" -gt 0 ] && printf ' · backed up %d' "$N_BACKUP"
   [ "$N_REMOVE" -gt 0 ] && printf ' · removed %d' "$N_REMOVE"
   printf '%b\n' "$RST"

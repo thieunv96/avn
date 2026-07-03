@@ -1,0 +1,213 @@
+#!/usr/bin/env bash
+# avn — manager CLI for the Asilla Claude Code baseline (pip-style).
+#
+# Wraps install.sh (the engine): downloads a baseline release and installs or
+# updates it in a target repo, checks whether a repo is up to date, and manages
+# itself in ~/.local/bin.
+#
+#   avn install [DIR] [--ref REF] [installer flags…]   install / bring up to date
+#   avn update  [DIR] [--ref REF] [installer flags…]   like install, but requires an existing install
+#   avn check   [DIR] [--ref REF]                      exit 0 = up to date, 1 = outdated, 2 = error
+#   avn version                                        CLI version + baseline version of the current repo
+#   avn self-install                                   copy this script to ~/.local/bin/avn
+#   avn self-update                                    replace this script with the latest from GitHub
+#   avn help
+#
+# Env: AVN_REPO  GitHub owner/repo (default: thieunv96/avn)
+#      AVN_REF   branch or tag, e.g. master or v2.1.0 (default: master)
+#      AVN_LOCAL_SRC  path to a local clone — use its files instead of downloading
+#                     (offline/dev/tests). Run avn in a normal terminal: inside a
+#                     baseline-governed Claude Code session curl/wget are denied.
+
+set -euo pipefail
+
+AVN_CLI_VERSION="2.1.0"
+AVN_REPO="${AVN_REPO:-thieunv96/avn}"
+AVN_REF="${AVN_REF:-master}"
+AVN_LOCAL_SRC="${AVN_LOCAL_SRC:-}"
+DL_DIR=""
+
+USE_COLOR=1
+{ [ -n "${NO_COLOR:-}" ] || [ ! -t 1 ]; } && USE_COLOR=0
+if [ "$USE_COLOR" -eq 1 ]; then
+  BOLD=$'\033[1m'; DIM=$'\033[2m'; RED=$'\033[31m'; GRN=$'\033[32m'
+  YLW=$'\033[33m'; CYN=$'\033[36m'; RST=$'\033[0m'
+else
+  BOLD=; DIM=; RED=; GRN=; YLW=; CYN=; RST=
+fi
+
+# fail_with CODE MESSAGE… — check uses 2 for errors so CI can tell error from outdated
+fail_with() { local rc="$1"; shift; printf '%b✗%b %s\n' "$RED" "$RST" "$*" >&2; exit "$rc"; }
+die() { fail_with 1 "$@"; }
+
+cleanup() {
+  [ -n "$DL_DIR" ] && [ -d "$DL_DIR" ] && rm -rf "$DL_DIR"
+  return 0
+}
+trap cleanup EXIT
+
+usage() {
+  cat <<EOF
+avn ${AVN_CLI_VERSION} — manager for the Asilla Claude Code baseline
+
+Usage:
+  avn install [DIR] [--ref REF] [installer flags…]
+  avn update  [DIR] [--ref REF] [installer flags…]
+  avn check   [DIR] [--ref REF]
+  avn version
+  avn self-install | avn self-update | avn help
+
+  DIR defaults to the current directory. --ref pins a branch or tag (v2.1.0).
+  Other flags (--dry-run, -y, --force, --backup, --no-backup, --no-color) are
+  passed through to install.sh. check exits 0 when up to date, 1 when outdated,
+  2 on errors (no stamp, network failure) — CI can rely on 0/1.
+
+Env: AVN_REPO (default thieunv96/avn), AVN_REF (default master),
+     AVN_LOCAL_SRC=<clone dir> to work offline from a local clone.
+EOF
+}
+
+have_downloader() { command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1; }
+fetch() {
+  if command -v curl >/dev/null 2>&1; then curl -fsSL "$1" -o "$2"
+  elif command -v wget >/dev/null 2>&1; then wget -qO "$2" "$1"
+  else die 'need "curl" or "wget" on PATH'
+  fi
+}
+
+# resolve_src — set SRC to a directory holding the baseline (local clone or downloaded tarball)
+resolve_src() {
+  if [ -n "$AVN_LOCAL_SRC" ]; then
+    [ -f "$AVN_LOCAL_SRC/install.sh" ] || die "AVN_LOCAL_SRC has no install.sh: $AVN_LOCAL_SRC"
+    SRC="$AVN_LOCAL_SRC"
+    return 0
+  fi
+  command -v tar >/dev/null 2>&1 || die 'need "tar" on PATH'
+  have_downloader || die 'need "curl" or "wget" on PATH'
+  DL_DIR="$(mktemp -d)"
+  printf '  %b⇣%b downloading %s@%s ...\n' "$CYN" "$RST" "$AVN_REPO" "$AVN_REF"
+  # AVN_REF may be a branch or a tag — codeload uses a different path for each.
+  if ! fetch "https://codeload.github.com/${AVN_REPO}/tar.gz/refs/heads/${AVN_REF}" "$DL_DIR/baseline.tgz" 2>/dev/null; then
+    fetch "https://codeload.github.com/${AVN_REPO}/tar.gz/refs/tags/${AVN_REF}" "$DL_DIR/baseline.tgz" \
+      || die "download failed: network error, or no branch/tag \"$AVN_REF\" in $AVN_REPO"
+  fi
+  tar -xzf "$DL_DIR/baseline.tgz" -C "$DL_DIR" || die "failed to extract baseline archive"
+  SRC=""
+  for d in "$DL_DIR"/*/; do SRC="${d%/}"; break; done
+  [ -n "$SRC" ] && [ -f "$SRC/install.sh" ] || die "downloaded archive has no install.sh"
+}
+
+stamp_version() {
+  # prints the installed version, or nothing — never fails (pipefail-safe)
+  [ -f "$1/.claude/avn-version" ] || return 0
+  sed -n 's/^version=//p' "$1/.claude/avn-version" | head -n1
+}
+
+latest_version() {
+  if [ -n "$AVN_LOCAL_SRC" ]; then
+    [ -f "$AVN_LOCAL_SRC/VERSION" ] || return 1
+    head -n1 "$AVN_LOCAL_SRC/VERSION" | tr -d '[:space:]'
+  else
+    local tmp v
+    tmp="$(mktemp)"
+    fetch "https://raw.githubusercontent.com/${AVN_REPO}/${AVN_REF}/VERSION" "$tmp" || { rm -f "$tmp"; return 1; }
+    v="$(head -n1 "$tmp" | tr -d '[:space:]')"
+    rm -f "$tmp"
+    printf '%s' "$v"
+  fi
+}
+
+# parse_target_args "$@" — sets DIR, AVN_REF, PASS (array of pass-through flags)
+DIR=""; PASS=()
+parse_target_args() {
+  DIR=""; PASS=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --ref)   [ $# -ge 2 ] || die "--ref needs a value"; AVN_REF="$2"; shift ;;
+      --ref=*) AVN_REF="${1#--ref=}" ;;
+      -h|--help) usage; exit 0 ;;
+      -*) PASS+=("$1") ;;
+      *)  [ -n "$DIR" ] && die "multiple target dirs given"; DIR="$1" ;;
+    esac
+    shift
+  done
+  DIR="${DIR:-$PWD}"
+  [ -d "$DIR" ] || die "target directory does not exist: $DIR"
+}
+
+cmd_install() { # $1 = require_stamp (0/1), rest = args
+  local require_stamp="$1"; shift
+  parse_target_args "$@"
+  if [ "$require_stamp" -eq 1 ] && [ ! -f "$DIR/.claude/avn-version" ]; then
+    die "no version stamp in $DIR (baseline installed before v2.1.0, or never) — use \"avn install\" first"
+  fi
+  resolve_src
+  local src_desc="${AVN_REPO}@${AVN_REF}"
+  [ -n "$AVN_LOCAL_SRC" ] && src_desc="local"
+  AVN_SOURCE="$src_desc" bash "$SRC/install.sh" ${PASS[@]+"${PASS[@]}"} "$DIR"
+}
+
+cmd_check() {
+  parse_target_args "$@"
+  [ "${#PASS[@]}" -eq 0 ] || fail_with 2 "unknown option for check: ${PASS[0]}"
+  local installed latest
+  installed="$(stamp_version "$DIR")"
+  [ -n "$installed" ] || fail_with 2 "no version stamp in $DIR (baseline installed before v2.1.0, or never) — run \"avn install\" first"
+  latest="$(latest_version)" || fail_with 2 "could not read the latest VERSION for ${AVN_REPO}@${AVN_REF}"
+  [ -n "$latest" ] || fail_with 2 "empty VERSION at ${AVN_REPO}@${AVN_REF}"
+  if [ "$installed" = "$latest" ]; then
+    printf '%b✓%b up to date — installed %s · latest %s %s(%s@%s)%s\n' \
+      "$GRN" "$RST" "$installed" "$latest" "$DIM" "$AVN_REPO" "$AVN_REF" "$RST"
+  else
+    printf '%b!%b outdated — installed %s · latest %s %s(%s@%s)%s — run "avn update"\n' \
+      "$YLW" "$RST" "$installed" "$latest" "$DIM" "$AVN_REPO" "$AVN_REF" "$RST"
+    return 1
+  fi
+}
+
+cmd_version() {
+  printf '%bavn%b %s\n' "$BOLD" "$RST" "$AVN_CLI_VERSION"
+  local v
+  v="$(stamp_version "$PWD")"
+  if [ -n "$v" ]; then
+    printf '%sbaseline in %s:%s %s\n' "$DIM" "$PWD" "$RST" "$v"
+  else
+    printf '%sbaseline in %s:%s not installed\n' "$DIM" "$PWD" "$RST"
+  fi
+}
+
+cmd_self_install() {
+  local self="${BASH_SOURCE[0]}" dest="$HOME/.local/bin/avn"
+  [ -f "$self" ] || die "cannot locate the avn script itself — download bin/avn to a file first"
+  mkdir -p "$HOME/.local/bin"
+  cp "$self" "$dest" && chmod +x "$dest"
+  printf '%b✓%b installed %s\n' "$GRN" "$RST" "$dest"
+  case ":$PATH:" in
+    *":$HOME/.local/bin:"*) ;;
+    *) printf '%b⚠%b %s is not in PATH — add:  export PATH="$HOME/.local/bin:$PATH"\n' "$YLW" "$RST" "$HOME/.local/bin" ;;
+  esac
+}
+
+cmd_self_update() {
+  local self="${BASH_SOURCE[0]}" tmp
+  [ -f "$self" ] || die "cannot locate the avn script to update"
+  tmp="$(mktemp)"
+  fetch "https://raw.githubusercontent.com/${AVN_REPO}/${AVN_REF}/bin/avn" "$tmp" || { rm -f "$tmp"; die "download failed"; }
+  bash -n "$tmp" || { rm -f "$tmp"; die "downloaded avn failed a syntax check — kept the current one"; }
+  chmod +x "$tmp"
+  mv "$tmp" "$self"   # mv swaps the inode: safe to replace a running script
+  printf '%b✓%b avn updated (%s)\n' "$GRN" "$RST" "$self"
+}
+
+CMD="${1:-help}"
+[ $# -gt 0 ] && shift
+case "$CMD" in
+  install)              cmd_install 0 "$@" ;;
+  update)               cmd_install 1 "$@" ;;
+  check)                cmd_check "$@" ;;
+  version|--version|-v) cmd_version ;;
+  self-install)         cmd_self_install ;;
+  self-update)          cmd_self_update ;;
+  help|-h|--help)       usage ;;
+  *) printf 'Unknown command: %s\n\n' "$CMD" >&2; usage >&2; exit 2 ;;
+esac
