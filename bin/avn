@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# avn — manager CLI for the Asilla Claude Code baseline (pip-style).
+# avn — manager CLI for the Claude Code baseline (pip-style).
 #
 # Wraps install.sh (the engine): downloads a baseline release and installs or
 # updates it in a target repo, checks whether a repo is up to date, and manages
@@ -21,7 +21,7 @@
 
 set -euo pipefail
 
-AVN_CLI_VERSION="2.1.0"
+AVN_CLI_VERSION="2.2.1"
 AVN_REPO="${AVN_REPO:-thieunv96/avn}"
 AVN_REF="${AVN_REF:-master}"
 AVN_LOCAL_SRC="${AVN_LOCAL_SRC:-}"
@@ -48,7 +48,7 @@ trap cleanup EXIT
 
 usage() {
   cat <<EOF
-avn ${AVN_CLI_VERSION} — manager for the Asilla Claude Code baseline
+avn ${AVN_CLI_VERSION} — manager for the Claude Code baseline
 
 Usage:
   avn install [DIR] [--ref REF] [installer flags…]

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — install the Asilla Claude Code baseline into a target repo.
+# install.sh — install the Claude Code baseline into a target repo.
 #
 # Copies CLAUDE.md + .claude/{rules,hooks,skills,agents,settings.json} and
 # .claude/verify-commands.example into TARGET_DIR. settings.json ships as-is:
@@ -35,7 +35,7 @@ N_CREATE=0; N_UPDATE=0; N_UNCHANGED=0; N_BACKUP=0; N_REMOVE=0
 
 usage() {
   cat <<'EOF'
-Install the Asilla Claude Code baseline into a target repo.
+Install the Claude Code baseline into a target repo.
 
 Usage:
   install.sh [options] [TARGET_DIR]
@@ -60,8 +60,8 @@ Env:
   AVN_REF        Branch or tag to fetch, e.g. master or v2.1.0 (default: master).
 
 Installs CLAUDE.md, .claude/rules/*.md, .claude/skills/** (brainstorm,
-code-review, verify), .claude/agents/*.md (if any), the hooks bash-guard.sh and
-verify-gate.sh (executable), .claude/verify-commands.example, and
+code-review, verify), .claude/agents/*.md (if any), the hooks bash-guard.sh,
+file-guard.sh and verify-gate.sh (executable), .claude/verify-commands.example, and
 .claude/settings.json (shipped as-is; hook paths use ${CLAUDE_PROJECT_DIR}).
 Also writes the baseline version to .claude/avn-version (commit this stamp so
 the whole team can see which baseline the repo runs).
@@ -221,7 +221,7 @@ fi
 if [ "$TARGET_ABS" = "$SRC" ]; then
   printf '%b✗%b target is the baseline source itself (%s). Choose another repo.\n' "$RED" "$RST" "$SRC" >&2; exit 1
 fi
-for f in "CLAUDE.md" ".claude/settings.json" ".claude/hooks/bash-guard.sh" ".claude/hooks/verify-gate.sh"; do
+for f in "CLAUDE.md" ".claude/settings.json" ".claude/hooks/bash-guard.sh" ".claude/hooks/file-guard.sh" ".claude/hooks/verify-gate.sh"; do
   if [ -z "${SRC:-}" ] || [ ! -f "$SRC/$f" ]; then
     printf '%b✗%b baseline source is missing %s\n' "$RED" "$RST" "$f" >&2; exit 1
   fi
@@ -255,12 +255,13 @@ if [ -d "$SRC/.claude/skills" ]; then
   done < <(find "$SRC/.claude/skills" -type f | sort)
 fi
 add_pair "$SRC/.claude/hooks/bash-guard.sh" "$TARGET_ABS/.claude/hooks/bash-guard.sh"
+add_pair "$SRC/.claude/hooks/file-guard.sh" "$TARGET_ABS/.claude/hooks/file-guard.sh"
 add_pair "$SRC/.claude/hooks/verify-gate.sh" "$TARGET_ABS/.claude/hooks/verify-gate.sh"
 add_pair "$SRC/.claude/verify-commands.example" "$TARGET_ABS/.claude/verify-commands.example"
 add_pair "$SRC/.claude/settings.json" "$TARGET_ABS/.claude/settings.json"
 
 # ---- Header ----
-printf '\n%b▸ Asilla Claude Code baseline%b\n' "$BOLD" "$RST"
+printf '\n%b▸ Claude Code baseline%b\n' "$BOLD" "$RST"
 printf '  %ssource%s  %s\n' "$DIM" "$RST" "$SRC_DESC"
 printf '  %starget%s  %s\n' "$DIM" "$RST" "$TARGET_ABS"
 if [ -z "$OLD_VER" ]; then
@@ -305,6 +306,7 @@ for i in "${!DESTS[@]}"; do
   install_file "${SRCS[$i]}" "${DESTS[$i]}"
 done
 [ "$DRY_RUN" -eq 1 ] || chmod +x "$TARGET_ABS/.claude/hooks/bash-guard.sh" \
+                                 "$TARGET_ABS/.claude/hooks/file-guard.sh" \
                                  "$TARGET_ABS/.claude/hooks/verify-gate.sh"
 
 # ---- Version stamp (written directly, not via install_file: a stamp never
@@ -316,7 +318,7 @@ if [ -z "$STAMP_SOURCE" ]; then
     *)        STAMP_SOURCE="local" ;;
   esac
 fi
-STAMP_CONTENT="# Asilla Claude Code baseline — written by install.sh; do not edit by hand.
+STAMP_CONTENT="# Claude Code baseline — written by install.sh; do not edit by hand.
 version=$NEW_VER
 source=$STAMP_SOURCE"
 if [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$STAMP_CONTENT" ]; then

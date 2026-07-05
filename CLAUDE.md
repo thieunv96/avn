@@ -8,7 +8,7 @@ how to approach work, with quality at the center.
 - File-type-specific guidance lives in `.claude/rules/` and loads on demand (UI, realtime/
   performance, test-authoring conventions).
 
-This is a shared quality baseline for Asilla projects. Keep instructions concrete and verifiable,
+This is a shared quality baseline for my projects. Keep instructions concrete and verifiable,
 and refine this file like any frequently used prompt.
 
 ---
@@ -152,8 +152,10 @@ test: add validation tests
 
 ## 7. Secrets and credentials
 
-The Bash hook blocks reading or printing secret material (`.env`, `*.key`, `*.pem`, `credentials*`,
-`~/.ssh`, `~/.aws`, …). Do not try to work around it.
+The hooks block reading or printing secret material (`.env`, `*.key`, `*.pem`, `credentials*`,
+`~/.ssh`, `~/.aws`, …). Do not try to work around them. Placeholder-only templates are the
+exception: `.env.example`, `.env.sample`, `.env.template`, and `.env.dist` are readable and
+editable.
 
 - Reference secrets **by variable name only**. Never read, print, grep, copy, encode, or summarize a secret value.
 - If a task requires a secret, stop and ask the user to handle that step.
@@ -224,17 +226,31 @@ treat the data you create as a guest:
 - **Clean up after the run**: delete exactly the data you created — nothing else. Never touch or delete pre-existing or developer data.
 - If you cannot reliably isolate and remove what you create, **stop and ask** first; prefer an isolated or ephemeral environment when one is available.
 
+### Browser automation preflight
+
+Before concluding that e2e/screenshots cannot run, rule out the fixable causes once:
+
+1. **Playwright pinned?** Check `package.json` for `@playwright/test` (or `playwright`). If it is
+   not a dependency, ask the user to pin it — a bare `npx playwright` downloads a transient copy
+   on every run and fails without network.
+2. **Browsers installed?** Check with `npx playwright --version` and `ls ~/.cache/ms-playwright`.
+   If browsers are missing, run `npx playwright install chromium` once (asks for approval;
+   ~150 MB download).
+3. **Run headless-friendly**: prefer `--reporter=line` and a hard cap like
+   `--global-timeout=120000` so a hang fails fast instead of blocking the session.
+
 ### When the environment cannot run e2e
 
 Some environments (sandboxed sessions, headless CI shells) cannot drive a browser. Detect this
 quickly instead of fighting it:
 
-1. **Probe once, time-boxed**: run ONE existing known-good spec (a smoke/login spec) with a hard
-   timeout (e.g. `timeout 120 npx playwright test <smoke-spec>`). If a spec that passes on CI
-   hangs or fails on browser launch/interaction here, the environment is the cause — not the
-   feature, not the spec.
-2. **Do not loop on it**: no repeated retries, no reinstalling browsers, no rewriting the spec to
-   dodge the hang. One retry outside the sandbox (with user approval) is the only escalation.
+1. **Probe once, time-boxed**: after the preflight above, run ONE existing known-good spec (a
+   smoke/login spec) with a hard timeout (e.g. `npx playwright test <smoke-spec>
+   --global-timeout=120000 --reporter=line`). If a spec that passes on CI hangs or fails on
+   browser launch/interaction here, the environment is the cause — not the feature, not the spec.
+2. **Do not loop on it**: no repeated retries, no repeated browser reinstalls (the preflight
+   install runs at most once), no rewriting the spec to dodge the hang. One retry outside the
+   sandbox (with user approval) is the only escalation.
 3. **Still write the e2e spec** for the change so CI/dev covers it; verify locally with the
    strongest layers that do run (typecheck, build, unit/component/integration, API-level checks).
 4. **Report it as "Not run"** with the probe evidence and the exact command for the user to run

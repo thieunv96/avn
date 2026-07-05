@@ -47,6 +47,18 @@ check 2 'cp ~/.ssh/id_rsa /tmp/'
 check 0 'cat README.md'
 check 0 'ls .environment'
 
+# ---- guard 3: placeholder templates are allowed, everything else stays blocked ----
+check 0 'cat .env.example'
+check 0 'grep API_KEY .env.example'
+check 0 'cat config/.env.example'
+check 0 'diff .env.sample .env.template'
+check 0 'cat .env.dist'
+check 2 'cat .env .env.example'
+check 2 'cat .env.example .env'
+check 2 'cat .env.production'
+check 2 'cat .env.example.bak'
+check 2 'cp .env .env.example'
+
 # ---- guard 4: env secrets (incl. ${var} and lowercase) ----
 check 2 'printenv'
 check 2 'env'
