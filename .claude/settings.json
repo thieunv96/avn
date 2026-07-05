@@ -1,5 +1,5 @@
 {
-  "$comment": "Asilla company baseline — .claude/settings.json (project-level, shipped as-is by install.sh). Rule syntax: Bash uses exact or prefix match with ':*' (NOT regex). Read/Edit use gitignore-style paths. Precedence: deny > ask > allow. Hook paths use ${CLAUDE_PROJECT_DIR} so every repo (including this one) is guarded. Dotenv policy lives in hooks/file-guard.sh (blocks all .env* except the placeholder templates .env.example/sample/template/dist — deny globs cannot express that exception); the bare .env deny rules here are defense-in-depth. Verify rules after install with /permissions inside Claude Code.",
+  "$comment": "Claude Code baseline — .claude/settings.json (project-level, shipped as-is by install.sh). Rule syntax: Bash uses exact or prefix match with ':*' (NOT regex). Read/Edit use gitignore-style paths. Precedence: deny > ask > allow. Hook paths use ${CLAUDE_PROJECT_DIR} so every repo (including this one) is guarded. Dotenv policy lives in hooks/file-guard.sh (blocks all .env* except the placeholder templates .env.example/sample/template/dist — deny globs cannot express that exception); the bare .env deny rules here are defense-in-depth. Verify rules after install with /permissions inside Claude Code.",
 
   "permissions": {
 

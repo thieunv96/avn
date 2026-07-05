@@ -1,6 +1,6 @@
-# Asilla Claude Code baseline
+# Claude Code baseline
 
-A shared Claude Code configuration baseline for Asilla projects:
+A shared Claude Code configuration baseline for my projects:
 
 - `CLAUDE.md` — quality-focused working agreement (workflow, scope, secrets, production, testing).
 - `.claude/rules/` — path-scoped rules that load on demand: `ui.md`, `realtime-performance.md`, `testing.md`, `migrations.md`.

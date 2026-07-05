@@ -9,7 +9,7 @@ paths:
 - Reuse existing components, design tokens, and patterns first. Do not invent a new visual style unless asked.
 - If the request is vague, clarify the target user, the page goal, and the main action before implementing.
 
-For Asilla/security products, prioritize operators under load:
+For security products, prioritize operators under load:
 
 - Large readable text, clear hierarchy, simple layout, high contrast, low cognitive load.
 - An obvious primary action per screen.

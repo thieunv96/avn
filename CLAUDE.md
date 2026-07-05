@@ -8,7 +8,7 @@ how to approach work, with quality at the center.
 - File-type-specific guidance lives in `.claude/rules/` and loads on demand (UI, realtime/
   performance, test-authoring conventions).
 
-This is a shared quality baseline for Asilla projects. Keep instructions concrete and verifiable,
+This is a shared quality baseline for my projects. Keep instructions concrete and verifiable,
 and refine this file like any frequently used prompt.
 
 ---

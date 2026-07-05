@@ -12,7 +12,7 @@
 
 set -u
 
-block() { echo "BLOCKED by company policy: $1" >&2; exit 2; }
+block() { echo "BLOCKED by baseline policy: $1" >&2; exit 2; }
 
 # Fail closed: without python3 the JSON parse below yields an empty command
 # and every guard is silently disabled.

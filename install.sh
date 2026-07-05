@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — install the Asilla Claude Code baseline into a target repo.
+# install.sh — install the Claude Code baseline into a target repo.
 #
 # Copies CLAUDE.md + .claude/{rules,hooks,skills,agents,settings.json} and
 # .claude/verify-commands.example into TARGET_DIR. settings.json ships as-is:
@@ -35,7 +35,7 @@ N_CREATE=0; N_UPDATE=0; N_UNCHANGED=0; N_BACKUP=0; N_REMOVE=0
 
 usage() {
   cat <<'EOF'
-Install the Asilla Claude Code baseline into a target repo.
+Install the Claude Code baseline into a target repo.
 
 Usage:
   install.sh [options] [TARGET_DIR]
@@ -261,7 +261,7 @@ add_pair "$SRC/.claude/verify-commands.example" "$TARGET_ABS/.claude/verify-comm
 add_pair "$SRC/.claude/settings.json" "$TARGET_ABS/.claude/settings.json"
 
 # ---- Header ----
-printf '\n%b▸ Asilla Claude Code baseline%b\n' "$BOLD" "$RST"
+printf '\n%b▸ Claude Code baseline%b\n' "$BOLD" "$RST"
 printf '  %ssource%s  %s\n' "$DIM" "$RST" "$SRC_DESC"
 printf '  %starget%s  %s\n' "$DIM" "$RST" "$TARGET_ABS"
 if [ -z "$OLD_VER" ]; then
@@ -318,7 +318,7 @@ if [ -z "$STAMP_SOURCE" ]; then
     *)        STAMP_SOURCE="local" ;;
   esac
 fi
-STAMP_CONTENT="# Asilla Claude Code baseline — written by install.sh; do not edit by hand.
+STAMP_CONTENT="# Claude Code baseline — written by install.sh; do not edit by hand.
 version=$NEW_VER
 source=$STAMP_SOURCE"
 if [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$STAMP_CONTENT" ]; then
