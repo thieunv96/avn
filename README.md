@@ -6,6 +6,7 @@ A shared Claude Code configuration baseline for Asilla projects:
 - `.claude/rules/` — path-scoped rules that load on demand: `ui.md`, `realtime-performance.md`, `testing.md`, `migrations.md`.
 - `.claude/skills/` — invocable workflows: `/brainstorm` (idea → spec), `/code-review` (independent review in a fresh context), `/verify` (run all verification layers, report evidence).
 - `.claude/hooks/bash-guard.sh` — PreToolUse hook that deterministically blocks dangerous Bash commands (push to main, `rm -rf`, secret reads, destructive SQL/redis/mongo/docker/kubectl, `git clean -f`, …).
+- `.claude/hooks/file-guard.sh` — PreToolUse hook for the file tools (Read/Edit/Write/Grep, …): blocks every dotenv file **except** the placeholder templates `.env.example` / `.env.sample` / `.env.template` / `.env.dist`.
 - `.claude/hooks/verify-gate.sh` — Stop hook that can enforce "tests green before finishing"; **dormant by default** (see below).
 - `.claude/verify-commands.example` — template for opting in to the verify gate.
 - `.claude/settings.json` — permission baseline (allow / ask / deny) plus the hook wiring.
@@ -101,7 +102,7 @@ AVN_REF=v2.1.0 curl -fsSL https://raw.githubusercontent.com/thieunv96/avn/master
 ### Releasing (maintainers)
 
 1. Bump `VERSION` and `AVN_CLI_VERSION` in `bin/avn` (the test suite fails if they diverge).
-2. Run the suites: `bash tests/install-version-test.sh && bash tests/bash-guard-test.sh`.
+2. Run the suites: `bash tests/install-version-test.sh && bash tests/bash-guard-test.sh && bash tests/file-guard-test.sh`.
 3. Commit, then tag and push: `git tag v<version> && git push origin master --tags`.
 
 ## Day-to-day usage

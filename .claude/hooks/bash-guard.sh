@@ -42,8 +42,13 @@ if echo "$CMD" | grep -Eq '\brm\b(\s+-[^ ]*)*\s+(-[a-zA-Z]*r|--recursive)' && \
 fi
 
 # 3) Reading secret material via shell (cat/less/head/tail/grep/base64/cp on
-#    sensitive paths) — Read() deny rules do not cover Bash.
-if echo "$CMD" | grep -Eq '(\.env([^a-zA-Z0-9_]|$)|\.env\.|\.pem\b|\.key\b|\.p12\b|\.pfx\b|credentials\.json|kubeconfig|\.kube/|\.ssh/|\.aws/|secrets/)'; then
+#    sensitive paths) — Read() deny rules do not cover Bash. Placeholder
+#    templates (.env.example/sample/template/dist) are scrubbed out first; the
+#    boundary class excludes "." and word chars so .env.example.bak stays
+#    blocked, and \2 re-inserts the boundary so adjacent tokens survive
+#    (`cat .env .env.example` still matches on the remaining `.env`).
+SCRUBBED=$(printf '%s\n' "$CMD" | sed -E 's/\.env\.(example|sample|template|dist)([^A-Za-z0-9_.]|$)/\2/g')
+if echo "$SCRUBBED" | grep -Eq '(\.env([^a-zA-Z0-9_]|$)|\.env\.|\.pem\b|\.key\b|\.p12\b|\.pfx\b|credentials\.json|kubeconfig|\.kube/|\.ssh/|\.aws/|secrets/)'; then
   block "command touches secret/credential paths."
 fi
 
