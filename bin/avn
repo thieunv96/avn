@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# avn — manager CLI for the Claude Code baseline (pip-style).
+# avn — manager CLI for the ThieuNV Claude Code baseline (pip-style).
 #
 # Wraps install.sh (the engine): downloads a baseline release and installs or
 # updates it in a target repo, checks whether a repo is up to date, and manages
@@ -21,7 +21,7 @@
 
 set -euo pipefail
 
-AVN_CLI_VERSION="2.3.0"
+AVN_CLI_VERSION="2.4.0"
 AVN_REPO="${AVN_REPO:-thieunv96/avn}"
 AVN_REF="${AVN_REF:-master}"
 AVN_LOCAL_SRC="${AVN_LOCAL_SRC:-}"
@@ -35,6 +35,20 @@ if [ "$USE_COLOR" -eq 1 ]; then
 else
   BOLD=; DIM=; RED=; GRN=; YLW=; CYN=; RST=
 fi
+HAVE_TTY=0
+[ -t 1 ] && HAVE_TTY=1
+
+# spin_wait PID MESSAGE — braille spinner on the current line while PID runs.
+# Caller gates on HAVE_TTY; the line is erased when the process finishes.
+spin_wait() {
+  local pid="$1" msg="$2" frames='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏' i=0
+  printf '\033[?25l'
+  while kill -0 "$pid" 2>/dev/null; do
+    printf '\r  %b%s%b %s ' "$CYN" "${frames:$((i % 10)):1}" "$RST" "$msg"
+    i=$((i+1)); sleep 0.1
+  done
+  printf '\r\033[K\033[?25h'
+}
 
 # fail_with CODE MESSAGE… — check uses 2 for errors so CI can tell error from outdated
 fail_with() { local rc="$1"; shift; printf '%b✗%b %s\n' "$RED" "$RST" "$*" >&2; exit "$rc"; }
@@ -42,13 +56,18 @@ die() { fail_with 1 "$@"; }
 
 cleanup() {
   [ -n "$DL_DIR" ] && [ -d "$DL_DIR" ] && rm -rf "$DL_DIR"
+  # restore the cursor if an interrupt landed mid-spinner (spin_wait hides it)
+  [ "${HAVE_TTY:-0}" -eq 1 ] && printf '\033[?25h'
   return 0
 }
 trap cleanup EXIT
 
 usage() {
   cat <<EOF
-avn ${AVN_CLI_VERSION} — manager for the Claude Code baseline
+  ${CYN}${BOLD}▄▀█ █░█ █▄░█${RST}
+  ${CYN}${BOLD}█▀█ ▀▄▀ █░▀█${RST}
+
+avn ${AVN_CLI_VERSION} — manager for the ThieuNV Claude Code baseline
 
 Usage:
   avn install [DIR] [--ref REF] [installer flags…]
@@ -85,12 +104,22 @@ resolve_src() {
   command -v tar >/dev/null 2>&1 || die 'need "tar" on PATH'
   have_downloader || die 'need "curl" or "wget" on PATH'
   DL_DIR="$(mktemp -d)"
-  printf '  %b⇣%b downloading %s@%s ...\n' "$CYN" "$RST" "$AVN_REPO" "$AVN_REF"
   # AVN_REF may be a branch or a tag — codeload uses a different path for each.
-  if ! fetch "https://codeload.github.com/${AVN_REPO}/tar.gz/refs/heads/${AVN_REF}" "$DL_DIR/baseline.tgz" 2>/dev/null; then
-    fetch "https://codeload.github.com/${AVN_REPO}/tar.gz/refs/tags/${AVN_REF}" "$DL_DIR/baseline.tgz" \
-      || die "download failed: network error, or no branch/tag \"$AVN_REF\" in $AVN_REPO"
+  download_baseline() {
+    fetch "https://codeload.github.com/${AVN_REPO}/tar.gz/refs/heads/${AVN_REF}" "$DL_DIR/baseline.tgz" 2>/dev/null \
+      || fetch "https://codeload.github.com/${AVN_REPO}/tar.gz/refs/tags/${AVN_REF}" "$DL_DIR/baseline.tgz" 2>/dev/null
+  }
+  local dl_ok=0
+  if [ "$HAVE_TTY" -eq 1 ]; then
+    download_baseline & local dl_pid=$!
+    spin_wait "$dl_pid" "downloading ${AVN_REPO}@${AVN_REF} ..."
+    wait "$dl_pid" && dl_ok=1 || dl_ok=0
+  else
+    printf '  %b⇣%b downloading %s@%s ...\n' "$CYN" "$RST" "$AVN_REPO" "$AVN_REF"
+    download_baseline && dl_ok=1 || dl_ok=0
   fi
+  [ "$dl_ok" -eq 1 ] || die "download failed: network error, or no branch/tag \"$AVN_REF\" in $AVN_REPO"
+  [ "$HAVE_TTY" -eq 1 ] && printf '  %b⇣%b downloaded %s@%s\n' "$CYN" "$RST" "$AVN_REPO" "$AVN_REF"
   tar -xzf "$DL_DIR/baseline.tgz" -C "$DL_DIR" || die "failed to extract baseline archive"
   SRC=""
   for d in "$DL_DIR"/*/; do SRC="${d%/}"; break; done
@@ -150,10 +179,18 @@ cmd_install() { # $1 = require_stamp (0/1), rest = args
 cmd_check() {
   parse_target_args "$@"
   [ "${#PASS[@]}" -eq 0 ] || fail_with 2 "unknown option for check: ${PASS[0]}"
-  local installed latest
+  local installed latest latest_rc=0
   installed="$(stamp_version "$DIR")"
   [ -n "$installed" ] || fail_with 2 "no version stamp in $DIR (baseline installed before v2.1.0, or never) — run \"avn install\" first"
-  latest="$(latest_version)" || fail_with 2 "could not read the latest VERSION for ${AVN_REPO}@${AVN_REF}"
+  if [ "$HAVE_TTY" -eq 1 ]; then
+    # transient status line; fetch stderr is silenced so it cannot garble it
+    printf '  %b…%b checking %s@%s for the latest version\r' "$CYN" "$RST" "$AVN_REPO" "$AVN_REF"
+    latest="$(latest_version 2>/dev/null)" || latest_rc=$?
+    printf '\r\033[K'
+  else
+    latest="$(latest_version)" || latest_rc=$?
+  fi
+  [ "$latest_rc" -eq 0 ] || fail_with 2 "could not read the latest VERSION for ${AVN_REPO}@${AVN_REF}"
   [ -n "$latest" ] || fail_with 2 "empty VERSION at ${AVN_REPO}@${AVN_REF}"
   if [ "$installed" = "$latest" ]; then
     printf '%b✓%b up to date — installed %s · latest %s %s(%s@%s)%s\n' \

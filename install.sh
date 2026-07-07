@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — install the Claude Code baseline into a target repo.
+# install.sh — install the ThieuNV Claude Code baseline into a target repo.
 #
 # Copies CLAUDE.md + .claude/{rules,hooks,skills,agents,settings.json} and
 # .claude/verify-commands.example into TARGET_DIR. settings.json ships as-is:
@@ -35,7 +35,7 @@ N_CREATE=0; N_UPDATE=0; N_UNCHANGED=0; N_BACKUP=0; N_REMOVE=0
 
 usage() {
   cat <<'EOF'
-Install the Claude Code baseline into a target repo.
+Install the ThieuNV Claude Code baseline into a target repo.
 
 Usage:
   install.sh [options] [TARGET_DIR]
@@ -111,8 +111,22 @@ line() {
   printf '  %b%s %s%b %s\n' "$1" "$2" "$v" "$RST" "$4"
 }
 
+# spin_wait PID MESSAGE — braille spinner on the current line while PID runs.
+# Caller gates on HAVE_TTY; the line is erased when the process finishes.
+spin_wait() {
+  local pid="$1" msg="$2" frames='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏' i=0
+  printf '\033[?25l'
+  while kill -0 "$pid" 2>/dev/null; do
+    printf '\r  %b%s%b %s ' "$CYN" "${frames:$((i % 10)):1}" "$RST" "$msg"
+    i=$((i+1)); sleep 0.1
+  done
+  printf '\r\033[K\033[?25h'
+}
+
 cleanup() {
   [ -n "$DL_DIR" ] && [ -d "$DL_DIR" ] && rm -rf "$DL_DIR"
+  # restore the cursor if an interrupt landed mid-spinner/menu (both hide it)
+  [ "${HAVE_TTY:-0}" -eq 1 ] && printf '\033[?25h'
   return 0
 }
 trap cleanup EXIT
@@ -206,12 +220,23 @@ else
     else wget -qO "$2" "$1"
     fi
   }
-  printf '  %b⇣%b downloading %s@%s ...\n' "$CYN" "$RST" "$AVN_REPO" "$AVN_REF"
   # AVN_REF may be a branch or a tag — codeload uses a different path for each.
-  if ! fetch "https://codeload.github.com/${AVN_REPO}/tar.gz/refs/heads/${AVN_REF}" "$DL_DIR/baseline.tgz" 2>/dev/null; then
-    fetch "https://codeload.github.com/${AVN_REPO}/tar.gz/refs/tags/${AVN_REF}" "$DL_DIR/baseline.tgz" \
-      || { printf '%b✗%b download failed: network error, or no branch/tag "%s" in %s\n' "$RED" "$RST" "$AVN_REF" "$AVN_REPO" >&2; exit 1; }
+  download_baseline() {
+    fetch "https://codeload.github.com/${AVN_REPO}/tar.gz/refs/heads/${AVN_REF}" "$DL_DIR/baseline.tgz" 2>/dev/null \
+      || fetch "https://codeload.github.com/${AVN_REPO}/tar.gz/refs/tags/${AVN_REF}" "$DL_DIR/baseline.tgz" 2>/dev/null
+  }
+  DL_OK=0
+  if [ "$HAVE_TTY" -eq 1 ]; then
+    download_baseline & DL_PID=$!
+    spin_wait "$DL_PID" "downloading ${AVN_REPO}@${AVN_REF} ..."
+    wait "$DL_PID" && DL_OK=1 || DL_OK=0
+  else
+    printf '  %b⇣%b downloading %s@%s ...\n' "$CYN" "$RST" "$AVN_REPO" "$AVN_REF"
+    download_baseline && DL_OK=1 || DL_OK=0
   fi
+  [ "$DL_OK" -eq 1 ] \
+    || { printf '%b✗%b download failed: network error, or no branch/tag "%s" in %s\n' "$RED" "$RST" "$AVN_REF" "$AVN_REPO" >&2; exit 1; }
+  [ "$HAVE_TTY" -eq 1 ] && printf '  %b⇣%b downloaded %s@%s\n' "$CYN" "$RST" "$AVN_REPO" "$AVN_REF"
   tar -xzf "$DL_DIR/baseline.tgz" -C "$DL_DIR" || { printf '%b✗%b failed to extract baseline archive\n' "$RED" "$RST" >&2; exit 1; }
   SRC=""
   for d in "$DL_DIR"/*/; do SRC="${d%/}"; break; done
@@ -261,7 +286,10 @@ add_pair "$SRC/.claude/verify-commands.example" "$TARGET_ABS/.claude/verify-comm
 add_pair "$SRC/.claude/settings.json" "$TARGET_ABS/.claude/settings.json"
 
 # ---- Header ----
-printf '\n%b▸ Claude Code baseline%b\n' "$BOLD" "$RST"
+printf '\n'
+printf '  %b▄▀█ █░█ █▄░█%b\n' "$CYN$BOLD" "$RST"
+printf '  %b█▀█ ▀▄▀ █░▀█%b  %bThieuNV Claude Code baseline%b\n' "$CYN$BOLD" "$RST" "$BOLD" "$RST"
+printf '\n'
 printf '  %ssource%s  %s\n' "$DIM" "$RST" "$SRC_DESC"
 printf '  %starget%s  %s\n' "$DIM" "$RST" "$TARGET_ABS"
 if [ -z "$OLD_VER" ]; then
@@ -300,11 +328,26 @@ fi
 
 printf '\n'
 
-# ---- Apply ----
+# ---- Apply (streams one status line per file; a TTY additionally gets a live progress bar) ----
+TOTAL=${#DESTS[@]}
+draw_bar() { # CUR TOTAL — rendered in place below the streaming status lines
+  [ "$HAVE_TTY" -eq 1 ] || return 0
+  local cur=$1 total=$2 width=24 filled bar="" j
+  filled=$(( cur * width / total ))
+  for (( j = 0; j < width; j++ )); do
+    if [ "$j" -lt "$filled" ]; then bar+="█"; else bar+="░"; fi
+  done
+  printf '\r  %b%s%b %d/%d files' "$CYN" "$bar" "$RST" "$cur" "$total"
+}
 [ "$DRY_RUN" -eq 1 ] || mkdir -p "$TARGET_ABS/.claude/rules" "$TARGET_ABS/.claude/hooks"
+CUR_N=0
 for i in "${!DESTS[@]}"; do
+  [ "$HAVE_TTY" -eq 1 ] && printf '\r\033[K'   # clear the bar before the next status line
   install_file "${SRCS[$i]}" "${DESTS[$i]}"
+  CUR_N=$((CUR_N+1))
+  draw_bar "$CUR_N" "$TOTAL"
 done
+[ "$HAVE_TTY" -eq 1 ] && printf '\r\033[K'
 [ "$DRY_RUN" -eq 1 ] || chmod +x "$TARGET_ABS/.claude/hooks/bash-guard.sh" \
                                  "$TARGET_ABS/.claude/hooks/file-guard.sh" \
                                  "$TARGET_ABS/.claude/hooks/verify-gate.sh"
@@ -318,7 +361,7 @@ if [ -z "$STAMP_SOURCE" ]; then
     *)        STAMP_SOURCE="local" ;;
   esac
 fi
-STAMP_CONTENT="# Claude Code baseline — written by install.sh; do not edit by hand.
+STAMP_CONTENT="# ThieuNV Claude Code baseline — written by install.sh; do not edit by hand.
 version=$NEW_VER
 source=$STAMP_SOURCE"
 if [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$STAMP_CONTENT" ]; then
