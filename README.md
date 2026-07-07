@@ -1,6 +1,6 @@
-# Claude Code baseline
+# ThieuNV Claude Code baseline
 
-A shared Claude Code configuration baseline for my projects:
+A shared Claude Code configuration baseline for ThieuNV's projects:
 
 - `CLAUDE.md` — quality-focused working agreement (workflow, scope, secrets, production, testing).
 - `.claude/rules/` — path-scoped rules that load on demand: `ui.md`, `realtime-performance.md`, `testing.md`, `migrations.md`.

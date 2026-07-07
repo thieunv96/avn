@@ -35,6 +35,7 @@ STAMP_REL=".claude/avn-version"
 # ---- 1. fresh install writes a stamp with the source VERSION ----
 T1="$TMP/t1"; mkdir -p "$T1"
 OUT="$(bash "$INSTALL" -y --no-color "$T1" 2>&1)" || fail "t1 install exited non-zero"
+assert_contains "t1 branding" "$OUT" "ThieuNV Claude Code baseline"
 assert_contains "t1 header" "$OUT" "$VER (new install)"
 [ -f "$T1/$STAMP_REL" ] && ok || fail "t1 stamp not created"
 grep -qx "version=$VER" "$T1/$STAMP_REL" && ok || fail "t1 stamp version != $VER"
