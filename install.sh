@@ -76,8 +76,8 @@ Env:
   AVN_REF        Branch or tag to fetch, e.g. master or v2.1.0 (default: master).
 
 Installs (from the src/ tree of the baseline) CLAUDE.md, .claude/rules/*.md,
-.claude/skills/** (brainstorm, code-review, verify), .claude/agents/*.md (if
-any), the hooks bash-guard.sh, file-guard.sh and verify-gate.sh (executable),
+.claude/skills/** (brainstorm, map, code-review, verify), .claude/agents/*.md
+(if any), the hooks bash-guard.sh, file-guard.sh and verify-gate.sh (executable),
 .claude/verify-commands.example, and .claude/settings.json (shipped as-is;
 hook paths use ${CLAUDE_PROJECT_DIR}). Also writes the baseline version to
 .claude/avn-version (commit this stamp so the whole team can see which

@@ -16,7 +16,7 @@
 # (fast, deterministic). Do not list a browser-driven e2e command if this
 # environment cannot drive a browser (e.g. a sandboxed session) — the gate
 # would block 3 times per turn for nothing. Keep such e2e on CI/dev instead
-# (see CLAUDE.md §10 "When the environment cannot run e2e").
+# (see .claude/rules/testing.md "When the environment cannot run e2e").
 #
 # Node:
 #npm run lint

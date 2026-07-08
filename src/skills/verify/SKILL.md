@@ -35,7 +35,7 @@ stop. **Never delete, skip, or weaken a test to go green.**
 
 Infrastructure failure ≠ test failure: if the e2e layer hangs or dies on
 browser launch/interaction (probe an existing known-good spec to confirm — see
-CLAUDE.md §10 "When the environment cannot run e2e"), report that layer as
+`.claude/rules/testing.md` "When the environment cannot run e2e"), report that layer as
 `Not run: e2e — <probe evidence>; run <cmd> on CI/dev` and continue with the
 remaining layers. Do not retry in a loop.
 

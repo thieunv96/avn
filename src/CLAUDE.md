@@ -5,8 +5,8 @@ how to approach work, with quality at the center.
 
 - Hard enforcement lives in `.claude/hooks/` and `.claude/settings.json` (these block dangerous
   actions deterministically). Do not restate or try to work around them.
-- File-type-specific guidance lives in `.claude/rules/` and loads on demand (UI, realtime/
-  performance, test-authoring conventions).
+- File-type-specific and situational guidance lives in `.claude/rules/` and loads on demand
+  (UI, realtime/performance, testing, migrations, deploy).
 
 This is a shared quality baseline for ThieuNV's projects. Keep instructions concrete and verifiable,
 and refine this file like any frequently used prompt.
@@ -34,6 +34,11 @@ Implement, then Verify and report.
 ### Explore / brainstorm first
 
 - Read the relevant existing code before writing any. Reuse existing patterns (see §3).
+- **Codebase KB first (when present).** If `.claude/rules/codebase-map.md` exists, read it and the
+  relevant `docs/codebase/` module files BEFORE exploring — an orienting reference that narrows the
+  search and flags related points (callers, invariants, adjacent modules). It never replaces
+  exploring: verify against the code and fill gaps, and where the KB and the code disagree, the
+  code wins (fix the KB as part of the task). No KB, or clearly stale? Suggest running `/map` once.
 - **Always use a sub-agent for web research and for exploring a large or unfamiliar codebase.** It works in its own context and returns only the findings, keeping the main context focused. Reading a few known files directly is fine; broad searching and web research are not.
 - Launch independent sub-agents in parallel when their searches do not depend on each other.
 - For a raw idea or a problem with no known solution yet, run the `/brainstorm` skill: it interviews the user, researches options in parallel, and produces a spec.
@@ -182,24 +187,8 @@ stop and ask.
 
 ### Deploying a new release (pull-based)
 
-When a deploy means pulling a new version onto a host (git pull + rebuild/restart):
-
-1. **Investigate before pulling (read-only):** fetch, then review `git log` / `git diff
-   <current>..origin/<branch>`; scan the name-status diff for migrations, seeds, schema files,
-   Dockerfile/compose, and `.env*.example` changes.
-2. **Review incoming migrations/seeds BEFORE building** when the pipeline auto-applies them on
-   container start — there is no later checkpoint. Classify each per `.claude/rules/migrations.md`
-   ("Reviewing incoming migrations"); destructive or non-idempotent → stop and report.
-3. **Config drift:** a changed default in `.env*.example`/config only takes effect if the real env
-   file does not override it — check by variable name (§7) and call it out explicitly.
-4. **Pull fast-forward only** (`git pull --ff-only`) and confirm the expected version landed.
-5. **Run long builds in the background.** If the completion notification is lost, do NOT start a
-   second build — detect the running one first (build processes, image timestamps) and wait.
-6. **Verify after deploy:** running version, migration logs, health endpoint, error-level log
-   scan, container status — plus read-only data checks when a data migration ran.
-7. **Rollback ladder:** additive-only changes → check out the previous version and rebuild; env
-   change → restore the old value and recreate; applied data migration → requires a backup,
-   report before acting.
+When a deploy means pulling a new version onto a host (git pull + rebuild/restart), follow
+`.claude/rules/deploy.md` step by step — read it before touching the host.
 
 ---
 
@@ -238,46 +227,11 @@ Run every layer — the full suite — for every change, small or large:
 A passing build, a linter, a script diffing output against a fixture, or a screenshot compared to a
 design all count as verification gates.
 
-### E2E on a shared environment
+### E2E practicalities
 
-When e2e tests run against an environment shared with developers (not a throwaway/isolated one),
-treat the data you create as a guest:
-
-- **Tag and track everything Claude Code creates** — use a recognizable marker (a `claude-e2e-` prefix, a dedicated test account/namespace, or a recorded list of created IDs) so it is unambiguous which records are test data.
-- **Clean up after the run**: delete exactly the data you created — nothing else. Never touch or delete pre-existing or developer data.
-- If you cannot reliably isolate and remove what you create, **stop and ask** first; prefer an isolated or ephemeral environment when one is available.
-
-### Browser automation preflight
-
-Before concluding that e2e/screenshots cannot run, rule out the fixable causes once:
-
-1. **Playwright pinned?** Check `package.json` for `@playwright/test` (or `playwright`). If it is
-   not a dependency, ask the user to pin it — a bare `npx playwright` downloads a transient copy
-   on every run and fails without network.
-2. **Browsers installed?** Check with `npx playwright --version` and `ls ~/.cache/ms-playwright`.
-   If browsers are missing, run `npx playwright install chromium` once (asks for approval;
-   ~150 MB download).
-3. **Run headless-friendly**: prefer `--reporter=line` and a hard cap like
-   `--global-timeout=120000` so a hang fails fast instead of blocking the session.
-
-### When the environment cannot run e2e
-
-Some environments (sandboxed sessions, headless CI shells) cannot drive a browser. Detect this
-quickly instead of fighting it:
-
-1. **Probe once, time-boxed**: after the preflight above, run ONE existing known-good spec (a
-   smoke/login spec) with a hard timeout (e.g. `npx playwright test <smoke-spec>
-   --global-timeout=120000 --reporter=line`). If a spec that passes on CI hangs or fails on
-   browser launch/interaction here, the environment is the cause — not the feature, not the spec.
-2. **Do not loop on it**: no repeated retries, no repeated browser reinstalls (the preflight
-   install runs at most once), no rewriting the spec to dodge the hang. One retry outside the
-   sandbox (with user approval) is the only escalation.
-3. **Still write the e2e spec** for the change so CI/dev covers it; verify locally with the
-   strongest layers that do run (typecheck, build, unit/component/integration, API-level checks).
-4. **Report it as "Not run"** with the probe evidence and the exact command for the user to run
-   on CI/dev — e.g. `Not run: e2e — browser automation hangs in this sandbox (probe:
-   auth.spec.ts timed out); run 'pnpm e2e' on CI or a dev machine.` This is an honest, complete
-   report — not a failure to verify.
+Shared-environment data hygiene, the browser-automation preflight, and the fallback when the
+environment cannot run e2e (probe once, time-boxed; report "Not run" with evidence — never loop
+on it) live in `.claude/rules/testing.md`.
 
 ### By change type
 
@@ -313,6 +267,7 @@ A task is done only when:
 - The spec / acceptance criteria are met and the change stays within scope.
 - Existing project patterns are followed; no unrelated files are modified.
 - Tests are written and passing (or pragmatic verification was done for ML/realtime), and the **evidence is reported**.
+- The codebase KB (`.claude/rules/codebase-map.md` + `docs/codebase/`, when the repo has one) was updated in the same change if the change invalidated any of its content.
 - The diff has been reviewed.
 - No secrets are exposed.
 - No production/customer system was modified without explicit approval.
