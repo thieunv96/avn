@@ -5,12 +5,13 @@
 # updates it in a target repo, checks whether a repo is up to date, and manages
 # itself in ~/.local/bin.
 #
-#   avn install [DIR] [--ref REF] [installer flags…]   install / bring up to date
-#   avn update  [DIR] [--ref REF] [installer flags…]   like install, but requires an existing install
-#   avn check   [DIR] [--ref REF]                      exit 0 = up to date, 1 = outdated, 2 = error
-#   avn version                                        CLI version + baseline version of the current repo
-#   avn self-install                                   copy this script to ~/.local/bin/avn
-#   avn self-update                                    replace this script with the latest from GitHub
+#   avn install   [DIR] [--ref REF] [installer flags…]   install / bring up to date
+#   avn update    [DIR] [--ref REF] [installer flags…]   like install, but requires an existing install
+#   avn uninstall [DIR] [--ref REF] [installer flags…]   remove the baseline (keeps user-edited files)
+#   avn check     [DIR] [--ref REF]                       exit 0 = up to date, 1 = outdated, 2 = error
+#   avn version                                           CLI version + baseline version of the current repo
+#   avn self-install                                      copy this script to ~/.local/bin/avn
+#   avn self-update                                       replace this script with the latest from GitHub
 #   avn help
 #
 # Env: AVN_REPO  GitHub owner/repo (default: thieunv96/avn)
@@ -21,7 +22,7 @@
 
 set -euo pipefail
 
-AVN_CLI_VERSION="2.4.0"
+AVN_CLI_VERSION="2.5.0"
 AVN_REPO="${AVN_REPO:-thieunv96/avn}"
 AVN_REF="${AVN_REF:-master}"
 AVN_LOCAL_SRC="${AVN_LOCAL_SRC:-}"
@@ -70,9 +71,10 @@ usage() {
 avn ${AVN_CLI_VERSION} — manager for the ThieuNV Claude Code baseline
 
 Usage:
-  avn install [DIR] [--ref REF] [installer flags…]
-  avn update  [DIR] [--ref REF] [installer flags…]
-  avn check   [DIR] [--ref REF]
+  avn install   [DIR] [--ref REF] [installer flags…]
+  avn update    [DIR] [--ref REF] [installer flags…]
+  avn uninstall [DIR] [--ref REF] [installer flags…]
+  avn check     [DIR] [--ref REF]
   avn version
   avn self-install | avn self-update | avn help
 
@@ -80,6 +82,9 @@ Usage:
   Other flags (--dry-run, -y, --force, --backup, --no-backup, --no-color) are
   passed through to install.sh. check exits 0 when up to date, 1 when outdated,
   2 on errors (no stamp, network failure) — CI can rely on 0/1.
+  uninstall removes only files byte-identical to the shipped release (your
+  edits and own files are kept); non-interactive runs need -y, preview with
+  --dry-run, and pin --ref v<installed> when the repo runs an older release.
 
 Env: AVN_REPO (default thieunv96/avn), AVN_REF (default master),
      AVN_LOCAL_SRC=<clone dir> to work offline from a local clone.
@@ -176,6 +181,12 @@ cmd_install() { # $1 = require_stamp (0/1), rest = args
   AVN_SOURCE="$src_desc" bash "$SRC/install.sh" ${PASS[@]+"${PASS[@]}"} "$DIR"
 }
 
+cmd_uninstall() {
+  parse_target_args "$@"
+  resolve_src
+  bash "$SRC/install.sh" --uninstall ${PASS[@]+"${PASS[@]}"} "$DIR"
+}
+
 cmd_check() {
   parse_target_args "$@"
   [ "${#PASS[@]}" -eq 0 ] || fail_with 2 "unknown option for check: ${PASS[0]}"
@@ -241,6 +252,7 @@ CMD="${1:-help}"
 case "$CMD" in
   install)              cmd_install 0 "$@" ;;
   update)               cmd_install 1 "$@" ;;
+  uninstall)            cmd_uninstall "$@" ;;
   check)                cmd_check "$@" ;;
   version|--version|-v) cmd_version ;;
   self-install)         cmd_self_install ;;

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Self-test for the version mechanism: install.sh stamp/old→new display and
-# the bin/avn CLI — baseline repo only, never installed. Fully offline: uses
-# install.sh local mode and AVN_LOCAL_SRC for avn.
+# Self-test for the installer/CLI: version stamp mechanism, install/uninstall
+# behavior and the bin/avn CLI — baseline repo only, never installed. Fully
+# offline: uses install.sh local mode and AVN_LOCAL_SRC for avn.
 # Usage: bash tests/install-version-test.sh
 
 set -u
@@ -41,6 +41,13 @@ assert_contains "t1 header" "$OUT" "$VER (new install)"
 grep -qx "version=$VER" "$T1/$STAMP_REL" && ok || fail "t1 stamp version != $VER"
 grep -qx "source=local"  "$T1/$STAMP_REL" && ok || fail "t1 stamp source != local"
 assert_contains "t1 summary" "$OUT" "baseline $VER"
+grep -qxF 'CLAUDE.md.bak'      "$T1/.gitignore" && ok || fail "t1 gitignore missing CLAUDE.md.bak"
+grep -qxF '.claude/**/*.bak'   "$T1/.gitignore" && ok || fail "t1 gitignore missing .claude/**/*.bak"
+# src/ → .claude/ mapping sanity: installed copies are byte-identical to the sources
+cmp -s "$ROOT/src/hooks/bash-guard.sh" "$T1/.claude/hooks/bash-guard.sh" && ok || fail "t1 hook mapping mismatch (bash-guard)"
+cmp -s "$ROOT/src/settings.json"       "$T1/.claude/settings.json"       && ok || fail "t1 settings mapping mismatch"
+cmp -s "$ROOT/src/CLAUDE.md"           "$T1/CLAUDE.md"                   && ok || fail "t1 CLAUDE.md mapping mismatch"
+cmp -s "$ROOT/src/skills/verify/SKILL.md" "$T1/.claude/skills/verify/SKILL.md" && ok || fail "t1 skills mapping mismatch"
 
 # ---- 2. re-run: stamp unchanged, no .bak for the stamp ----
 OUT="$(bash "$INSTALL" -y --no-color "$T1" 2>&1)" || fail "t1 re-install exited non-zero"
@@ -113,6 +120,57 @@ assert_contains "install.sh downloader error" "$OUT" 'need "curl" or "wget"'
 OUT="$(PATH="$SHIM" bash "$AVN" install "$T4" 2>&1)"; RC=$?
 [ "$RC" -eq 1 ] && ok || fail "avn without curl/wget: expected exit 1, got $RC"
 assert_contains "avn downloader error" "$OUT" 'need "curl" or "wget"'
+
+# ---- 11. self-target (source repo as target): mutating install needs a TTY; dry-run doesn't ----
+OUT="$(bash "$INSTALL" -y --no-color "$ROOT" 2>&1)"; RC=$?
+[ "$RC" -eq 1 ] && ok || fail "self-target headless: expected exit 1, got $RC"
+assert_contains "self-target refusal" "$OUT" "needs a human"
+OUT="$(bash "$INSTALL" --force --no-color "$ROOT" 2>&1)"; RC=$?
+[ "$RC" -eq 1 ] && ok || fail "self-target headless --force: expected exit 1, got $RC"
+OUT="$(bash "$INSTALL" --dry-run --no-color "$ROOT" 2>&1)"; RC=$?
+[ "$RC" -eq 0 ] && ok || fail "self-target dry-run: expected exit 0, got $RC"
+assert_contains "self-target dry-run banner" "$OUT" "dry-run complete"
+
+# ---- 12. uninstall: removes shipped files, keeps user-edited and user-made ones ----
+T5="$TMP/t5"; mkdir -p "$T5"
+bash "$INSTALL" -y --no-color "$T5" >/dev/null 2>&1 || fail "t5 install exited non-zero"
+printf 'true\n' >> "$T5/CLAUDE.md"                    # user-modified shipped file
+printf '#opt-in\n' > "$T5/.claude/verify-commands"    # user-made file
+OUT="$(bash "$INSTALL" --uninstall -y --no-color "$T5" 2>&1)" || fail "t5 uninstall exited non-zero"
+assert_contains "t5 keep notice" "$OUT" "keep"
+[ -f "$T5/CLAUDE.md" ] && ok || fail "t5 modified CLAUDE.md was removed"
+[ -f "$T5/.claude/verify-commands" ] && ok || fail "t5 user verify-commands was removed"
+[ ! -f "$T5/.claude/settings.json" ] && ok || fail "t5 settings.json not removed"
+[ ! -f "$T5/.claude/hooks/bash-guard.sh" ] && ok || fail "t5 hook not removed"
+[ ! -f "$T5/$STAMP_REL" ] && ok || fail "t5 stamp not removed"
+[ ! -d "$T5/.claude/skills" ] && ok || fail "t5 skills dir not pruned"
+[ -d "$T5/.claude" ] && ok || fail "t5 .claude dir should survive (verify-commands kept)"
+if grep -qxF 'CLAUDE.local.md' "$T5/.gitignore"; then fail "t5 gitignore line not removed"; else ok; fi
+
+# ---- 13. uninstall on a pristine install removes everything it added ----
+T6="$TMP/t6"; mkdir -p "$T6"
+bash "$INSTALL" -y --no-color "$T6" >/dev/null 2>&1 || fail "t6 install exited non-zero"
+OUT="$(bash "$INSTALL" --uninstall -y --no-color "$T6" 2>&1)" || fail "t6 uninstall exited non-zero"
+assert_contains "t6 summary" "$OUT" "uninstalled"
+[ ! -e "$T6/CLAUDE.md" ] && ok || fail "t6 CLAUDE.md not removed"
+[ ! -d "$T6/.claude" ] && ok || fail "t6 .claude dir not pruned"
+
+# ---- 14. uninstall guard rails: headless needs -y, dry-run changes nothing, avn wraps it ----
+T7="$TMP/t7"; mkdir -p "$T7"
+bash "$INSTALL" -y --no-color "$T7" >/dev/null 2>&1 || fail "t7 install exited non-zero"
+OUT="$(bash "$INSTALL" --uninstall --no-color "$T7" 2>&1)"; RC=$?
+[ "$RC" -eq 1 ] && ok || fail "t7 headless uninstall without -y: expected exit 1, got $RC"
+assert_contains "t7 -y hint" "$OUT" "needs an explicit -y"
+OUT="$(bash "$INSTALL" --uninstall --dry-run --no-color "$T7" 2>&1)"; RC=$?
+[ "$RC" -eq 0 ] && ok || fail "t7 uninstall dry-run: expected exit 0, got $RC"
+[ -f "$T7/.claude/settings.json" ] && ok || fail "t7 dry-run removed files"
+OUT="$(AVN_LOCAL_SRC="$ROOT" bash "$AVN" uninstall -y --no-color "$T7" 2>&1)" || fail "t7 avn uninstall exited non-zero"
+[ ! -d "$T7/.claude" ] && ok || fail "t7 avn uninstall did not remove .claude"
+
+# ---- 15. self-target uninstall is TTY-gated like the install ----
+OUT="$(bash "$INSTALL" --uninstall -y --no-color "$ROOT" 2>&1)"; RC=$?
+[ "$RC" -eq 1 ] && ok || fail "self-target uninstall headless: expected exit 1, got $RC"
+assert_contains "self-target uninstall refusal" "$OUT" "needs a human"
 
 printf 'install-version-test: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
