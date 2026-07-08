@@ -5,7 +5,7 @@
 
 set -u
 
-HOOK="$(cd "$(dirname "$0")/.." && pwd)/.claude/hooks/file-guard.sh"
+HOOK="$(cd "$(dirname "$0")/.." && pwd)/src/hooks/file-guard.sh"
 [ -f "$HOOK" ] || { echo "hook not found: $HOOK" >&2; exit 1; }
 
 PASS=0 FAIL=0
@@ -79,6 +79,22 @@ check 0 Read file_path 'env.example'
 check 0 Read file_path '.environment'
 check 0 Read file_path 'README.md'
 check 0 Grep path 'src'
+
+# ---- baseline guard files: write tools blocked, reading passes ----
+check 2 Write file_path '.claude/hooks/bash-guard.sh'
+check 2 Edit file_path '.claude/hooks/file-guard.sh'
+check 2 Edit file_path '/repo/.claude/hooks/verify-gate.sh'
+check 2 MultiEdit file_path '.claude/hooks/bash-guard.sh'
+check 2 NotebookEdit notebook_path '.claude/hooks/x.ipynb'
+check 2 Write file_path '.claude/verify-commands'
+check 2 Edit file_path '.claude/avn-version'
+check 0 Read file_path '.claude/hooks/bash-guard.sh'
+check 0 Grep path '.claude/hooks'
+check 0 Write file_path '.claude/verify-commands.example'
+check 0 Edit file_path '.claude/skills/verify/SKILL.md'
+check 0 Write file_path '.claude/rules/ui.md'
+check 0 Edit file_path 'src/claude/hooks/app.ts'
+check 0 Write file_path '.claude/settings.json'   # Edit protection = deny rule (see hook header), not this hook
 
 # ---- malformed / empty input is non-blocking (same as bash-guard) ----
 check_raw 0 '{}'
