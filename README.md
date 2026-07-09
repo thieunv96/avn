@@ -4,7 +4,7 @@ A shared Claude Code configuration baseline for ThieuNV's projects:
 
 - `CLAUDE.md` — quality-focused working agreement (workflow, scope, secrets, production, testing).
 - `.claude/rules/` — path-scoped rules that load on demand: `ui.md`, `realtime-performance.md`, `testing.md`, `migrations.md`, `deploy.md`.
-- `.claude/skills/` — invocable workflows: `/brainstorm` (idea → spec), `/map` (generate/refresh the codebase knowledge base), `/code-review` (independent review in a fresh context), `/verify` (run all verification layers, report evidence).
+- `.claude/skills/` — invocable workflows: `/brainstorm` (idea → spec), `/code-review` (independent review in a fresh context), `/verify` (run all verification layers, report evidence).
 - `.claude/hooks/bash-guard.sh` — PreToolUse hook that deterministically blocks dangerous Bash commands (push to main — including a bare `git push` while the checkout sits on main/master, `rm -rf`, secret reads, destructive SQL/redis/mongo/docker/kubectl, `git clean -f`, discarding uncommitted changes via `checkout`/`restore`/`stash drop`, shell edits of the guard files themselves, …).
 - `.claude/hooks/file-guard.sh` — PreToolUse hook for the file tools (Read/Edit/Write/Grep, …): blocks every dotenv file **except** the placeholder templates `.env.example` / `.env.sample` / `.env.template` / `.env.dist`, and blocks the write tools on the baseline guard files so the agent cannot neutralize its own guard layer.
 - `.claude/hooks/verify-gate.sh` — Stop hook that can enforce "tests green before finishing"; **dormant by default** (see below).
@@ -125,7 +125,6 @@ report no pending changes) — a release should only be tagged from a green mast
 
 | Situation | Practice |
 | --- | --- |
-| New repo, or every session re-explores from scratch | `/map` — generates the codebase KB: an auto-loaded index (`.claude/rules/codebase-map.md`) + on-demand docs under `docs/codebase/`; sessions read it first, then explore to confirm |
 | Raw idea, no clear solution yet | `/brainstorm` — interviews you, researches options, produces a spec |
 | Non-trivial task | Plan Mode + the spec-driven Clarify/Plan steps (CLAUDE.md §2) |
 | Risky data operation (DB, volumes, prod-like systems) | Data-risk assessment first (CLAUDE.md §8); the hook blocks the worst commands outright |

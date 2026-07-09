@@ -219,17 +219,18 @@ install_file() {
 
 # ---- Legacy reconcile (shared by install and uninstall) ----
 # Removes files an old baseline shipped and the current one has dropped
-# (legacy research workflow). A file is removed only when (a) it is in the
-# target but NOT in the current baseline source (target .claude/X maps to
-# source src/X), AND (b) its sha256 matches the exact content the old baseline
-# shipped (commit 6d5418d) — a same-named file with different content is
-# user-made and is kept. If the baseline ever ships these paths again under
-# src/, the source-existence guard keeps them.
+# (the legacy research workflow; the /map skill dropped in v2.6.1). A file is
+# removed only when (a) it is in the target but NOT in the current baseline
+# source (target .claude/X maps to source src/X), AND (b) its sha256 matches
+# the exact content that prior baseline shipped — a same-named file with
+# different content is user-made and is kept. If the baseline ever ships these
+# paths again under src/, the source-existence guard keeps them.
 legacy_sha() {
   case "$1" in
     ".claude/agents/impact-research.md")   echo "3166e8b7a972aade3c4655b251787097eac0b308071a2579814b5915563e02ea" ;;
     ".claude/agents/security-research.md") echo "22f3cba74273063f96379b8bb815a1e0a24f10d5a9c07f489fe6f31d6fa71d50" ;;
     ".claude/skills/research/SKILL.md")    echo "b0d09c2604255b285d7463299a88810e9a1670105ecced47d7076332c06eb2c7" ;;
+    ".claude/skills/map/SKILL.md")         echo "5654b3c54d0271e80af1be0a050075c86a7ec723e3525897885ce58d89a5fd5f" ;;
   esac
 }
 file_sha() {
@@ -241,7 +242,8 @@ reconcile_legacy() {
   local rf
   for rf in ".claude/agents/impact-research.md" \
             ".claude/agents/security-research.md" \
-            ".claude/skills/research/SKILL.md"; do
+            ".claude/skills/research/SKILL.md" \
+            ".claude/skills/map/SKILL.md"; do
     if [ -f "$TARGET_ABS/$rf" ] && [ ! -e "$SRC/src/${rf#.claude/}" ]; then
       if [ "$(file_sha "$TARGET_ABS/$rf")" = "$(legacy_sha "$rf")" ]; then
         line "$RED" "-" "remove" "$rf"
@@ -254,6 +256,7 @@ reconcile_legacy() {
   done
   # prune legacy dirs only if now empty (rmdir refuses non-empty dirs — never touches user files)
   [ "$DRY_RUN" -eq 1 ] || rmdir "$TARGET_ABS/.claude/skills/research" \
+    "$TARGET_ABS/.claude/skills/map" \
     "$TARGET_ABS/.claude/agents" 2>/dev/null || true
 }
 
