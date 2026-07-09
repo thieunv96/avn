@@ -34,11 +34,6 @@ Implement, then Verify and report.
 ### Explore / brainstorm first
 
 - Read the relevant existing code before writing any. Reuse existing patterns (see §3).
-- **Codebase KB first (when present).** If `.claude/rules/codebase-map.md` exists, read it and the
-  relevant `docs/codebase/` module files BEFORE exploring — an orienting reference that narrows the
-  search and flags related points (callers, invariants, adjacent modules). It never replaces
-  exploring: verify against the code and fill gaps, and where the KB and the code disagree, the
-  code wins (fix the KB as part of the task). No KB, or clearly stale? Suggest running `/map` once.
 - **Always use a sub-agent for web research and for exploring a large or unfamiliar codebase.** It works in its own context and returns only the findings, keeping the main context focused. Reading a few known files directly is fine; broad searching and web research are not.
 - Launch independent sub-agents in parallel when their searches do not depend on each other.
 - For a raw idea or a problem with no known solution yet, run the `/brainstorm` skill: it interviews the user, researches options in parallel, and produces a spec.
@@ -267,7 +262,6 @@ A task is done only when:
 - The spec / acceptance criteria are met and the change stays within scope.
 - Existing project patterns are followed; no unrelated files are modified.
 - Tests are written and passing (or pragmatic verification was done for ML/realtime), and the **evidence is reported**.
-- The codebase KB (`.claude/rules/codebase-map.md` + `docs/codebase/`, when the repo has one) was updated in the same change if the change invalidated any of its content.
 - The diff has been reviewed.
 - No secrets are exposed.
 - No production/customer system was modified without explicit approval.
