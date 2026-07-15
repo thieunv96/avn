@@ -1,5 +1,5 @@
 {
-  "$comment": "ThieuNV Claude Code baseline — .claude/settings.json (project-level, shipped as-is by install.sh). This is the STRICT profile (the default); settings.relaxed.json is the relaxed variant selected via install.sh --profile. Rule syntax: Bash uses exact or prefix match with ':*' (NOT regex). Read/Edit use gitignore-style paths. Precedence: deny > ask > allow. Hook paths use ${CLAUDE_PROJECT_DIR} so every repo (including this one) is guarded. Dotenv policy lives in hooks/file-guard.sh (blocks all .env* except the placeholder templates .env.example/sample/template/dist — deny globs cannot express that exception); the bare .env deny rules here are defense-in-depth. The .claude/* self-edit denies keep the agent from neutralizing its own guard layer (file-guard and bash-guard rule 14 are the deterministic backstop). Verify rules after install with /permissions inside Claude Code.",
+  "$comment": "ThieuNV Claude Code baseline — .claude/settings.json, RELAXED profile (installed by install.sh --profile relaxed; the default/strict variant is settings.json). For isolated systems with no real secrets only: project-local secret reads (.env, keys, certs, secrets/) are permitted, docker / DB CLIs / package installs run without prompts, and curl/wget drop from deny to ask. Machine credentials (~/.ssh, ~/.aws, ~/.kube, kubeconfig), destructive commands (rm -rf, DROP/TRUNCATE, docker volume rm, git push to main) and the .claude/* self-edit denies stay exactly as in strict — the hooks read profile=relaxed from .claude/avn-version and lift only their project-secret rules. tests/settings-profile-test.sh asserts this file differs from settings.json in exactly the documented ways. Verify rules after install with /permissions inside Claude Code.",
 
   "permissions": {
 
@@ -13,25 +13,13 @@
       "Bash(git push --force:*)",
       "Bash(git push -f:*)",
       "Bash(npm install -g:*)",
-      "Bash(curl:*)",
-      "Bash(wget:*)",
 
-      "Read(./.env)",
-      "Read(**/.env)",
-      "Read(**/*.key)",
-      "Read(**/*.pem)",
-      "Read(**/*.p12)",
-      "Read(**/*.pfx)",
-      "Read(**/credentials.json)",
-      "Read(**/secrets/**)",
       "Read(**/kubeconfig)",
       "Read(~/.ssh/**)",
       "Read(~/.aws/**)",
       "Read(~/.kube/**)",
       "Read(~/.docker/config.json)",
 
-      "Edit(**/.env)",
-      "Edit(**/secrets/**)",
       "Edit(**/.github/**)",
       "Edit(**/.mcp.json)",
       "Edit(~/.claude/settings.json)",
@@ -45,15 +33,8 @@
 
     "ask": [
       "Bash(git push:*)",
-      "Bash(npx playwright install:*)",
-      "Bash(npm install:*)",
-      "Bash(yarn add:*)",
-      "Bash(pnpm add:*)",
-      "Bash(pip install:*)",
-      "Bash(uv add:*)",
-      "Bash(docker compose:*)",
-      "Bash(docker-compose:*)",
-      "Bash(docker inspect:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
       "Bash(kubectl:*)",
       "Bash(helm:*)",
       "Bash(terraform:*)",
@@ -65,9 +46,6 @@
       "Bash(ssh:*)",
       "Bash(scp:*)",
       "Bash(rsync:*)",
-      "Bash(psql:*)",
-      "Bash(mysql:*)",
-      "Bash(redis-cli:*)",
       "Bash(systemctl:*)"
     ],
 
@@ -117,7 +95,19 @@
       "Bash(find:*)",
       "Bash(node --version)",
       "Bash(npm --version)",
-      "Bash(python --version)"
+      "Bash(python --version)",
+      "Bash(docker:*)",
+      "Bash(docker compose:*)",
+      "Bash(docker-compose:*)",
+      "Bash(npm install:*)",
+      "Bash(yarn add:*)",
+      "Bash(pnpm add:*)",
+      "Bash(pip install:*)",
+      "Bash(uv add:*)",
+      "Bash(npx playwright install:*)",
+      "Bash(psql:*)",
+      "Bash(mysql:*)",
+      "Bash(redis-cli:*)"
     ]
   },
 

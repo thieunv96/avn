@@ -76,7 +76,7 @@ assert_contains "check up-to-date" "$OUT" "up to date"
 printf 'version=0.0.1\nsource=local\n' > "$T1/$STAMP_REL"
 OUT="$(AVN_LOCAL_SRC="$ROOT" bash "$AVN" check "$T1" 2>&1)"; RC=$?
 [ "$RC" -eq 1 ] && ok || fail "avn check outdated: expected exit 1, got $RC"
-assert_contains "check outdated" "$OUT" "outdated — installed 0.0.1 · latest $VER"
+assert_contains "check outdated" "$OUT" "outdated — installed 0.0.1 (strict) · latest $VER"
 
 # ---- 6. avn update refuses a repo with no stamp; avn install works ----
 T3="$TMP/t3"; mkdir -p "$T3"
@@ -171,6 +171,73 @@ OUT="$(AVN_LOCAL_SRC="$ROOT" bash "$AVN" uninstall -y --no-color "$T7" 2>&1)" ||
 OUT="$(bash "$INSTALL" --uninstall -y --no-color "$ROOT" 2>&1)"; RC=$?
 [ "$RC" -eq 1 ] && ok || fail "self-target uninstall headless: expected exit 1, got $RC"
 assert_contains "self-target uninstall refusal" "$OUT" "needs a human"
+
+# ---- 16. guard profiles: strict by default, invalid value, headless relax gate ----
+T8="$TMP/t8"; mkdir -p "$T8"
+bash "$INSTALL" -y --no-color "$T8" >/dev/null 2>&1 || fail "t8 install exited non-zero"
+grep -qx "profile=strict" "$T8/$STAMP_REL" && ok || fail "t8 fresh stamp missing profile=strict"
+cmp -s "$ROOT/src/settings.json" "$T8/.claude/settings.json" && ok || fail "t8 default settings != strict variant"
+bash "$INSTALL" --profile bogus -y --no-color "$T8" >/dev/null 2>&1
+[ $? -eq 2 ] && ok || fail "t8 --profile bogus: expected exit 2"
+bash "$INSTALL" --uninstall --profile strict -y --no-color "$T8" >/dev/null 2>&1
+[ $? -eq 2 ] && ok || fail "t8 --profile with --uninstall: expected exit 2"
+OUT="$(bash "$INSTALL" --profile relaxed -y --no-color "$T8" 2>&1)"; RC=$?
+[ "$RC" -eq 1 ] && ok || fail "t8 headless relax: expected exit 1, got $RC"
+assert_contains "t8 relax refusal" "$OUT" "needs a human"
+OUT="$(bash "$INSTALL" --profile relaxed --force --no-color "$T8" 2>&1)"; RC=$?
+[ "$RC" -eq 1 ] && ok || fail "t8 headless relax --force: expected exit 1, got $RC"
+grep -qx "profile=strict" "$T8/$STAMP_REL" && ok || fail "t8 refused relax still flipped the stamp"
+cmp -s "$ROOT/src/settings.json" "$T8/.claude/settings.json" && ok || fail "t8 refused relax still swapped settings"
+OUT="$(bash "$INSTALL" --profile relaxed --dry-run --no-color "$T8" 2>&1)"; RC=$?
+[ "$RC" -eq 0 ] && ok || fail "t8 relax dry-run: expected exit 0, got $RC"
+assert_contains "t8 dry-run profile row" "$OUT" "strict → relaxed"
+grep -qx "profile=strict" "$T8/$STAMP_REL" && ok || fail "t8 dry-run changed the stamp"
+
+# ---- 17. profile persistence: an already-relaxed repo stays relaxed headless ----
+T9="$TMP/t9"; mkdir -p "$T9"
+bash "$INSTALL" -y --no-color "$T9" >/dev/null 2>&1 || fail "t9 install exited non-zero"
+printf 'version=0.0.1\nsource=local\nprofile=relaxed\n' > "$T9/$STAMP_REL"
+OUT="$(bash "$INSTALL" -y --no-color "$T9" 2>&1)" || fail "t9 relaxed update exited non-zero"
+assert_contains "t9 profile row" "$OUT" "profile relaxed"
+grep -qx "profile=relaxed" "$T9/$STAMP_REL" && ok || fail "t9 update reset the profile"
+grep -qx "version=$VER"    "$T9/$STAMP_REL" && ok || fail "t9 update did not bump the version"
+cmp -s "$ROOT/src/settings.relaxed.json" "$T9/.claude/settings.json" && ok || fail "t9 relaxed settings not installed"
+
+# ---- 18. --profile strict tightens headless; unknown stamp value reads as strict ----
+OUT="$(bash "$INSTALL" --profile strict -y --no-color "$T9" 2>&1)" || fail "t9 tighten exited non-zero"
+assert_contains "t9 tighten row" "$OUT" "relaxed → strict"
+grep -qx "profile=strict" "$T9/$STAMP_REL" && ok || fail "t9 tighten did not rewrite the stamp"
+cmp -s "$ROOT/src/settings.json" "$T9/.claude/settings.json" && ok || fail "t9 strict settings not restored"
+printf 'version=0.0.1\nsource=local\nprofile=RELAXED\n' > "$T9/$STAMP_REL"
+bash "$INSTALL" -y --no-color "$T9" >/dev/null 2>&1 || fail "t9 bogus-profile update exited non-zero"
+grep -qx "profile=strict" "$T9/$STAMP_REL" && ok || fail "t9 unknown profile value did not normalize to strict"
+cmp -s "$ROOT/src/settings.json" "$T9/.claude/settings.json" && ok || fail "t9 bogus value swapped in relaxed settings"
+
+# ---- 19. uninstalling a relaxed repo compares settings against the relaxed variant ----
+T10="$TMP/t10"; mkdir -p "$T10"
+bash "$INSTALL" -y --no-color "$T10" >/dev/null 2>&1 || fail "t10 install exited non-zero"
+printf '# ThieuNV Claude Code baseline — written by install.sh; do not edit by hand.\nversion=%s\nsource=local\nprofile=relaxed\n' "$VER" > "$T10/$STAMP_REL"
+cp "$ROOT/src/settings.relaxed.json" "$T10/.claude/settings.json"
+OUT="$(bash "$INSTALL" --uninstall -y --no-color "$T10" 2>&1)" || fail "t10 uninstall exited non-zero"
+[ ! -f "$T10/.claude/settings.json" ] && ok || fail "t10 relaxed settings.json not removed"
+[ ! -d "$T10/.claude" ] && ok || fail "t10 .claude not pruned"
+
+# ---- 20. avn: --profile passthrough (value must not be swallowed as DIR), display ----
+T11="$TMP/t11"; mkdir -p "$T11"
+AVN_LOCAL_SRC="$ROOT" bash "$AVN" install --profile strict -y --no-color "$T11" >/dev/null 2>&1 \
+  || fail "t11 avn install --profile strict exited non-zero"
+[ -f "$T11/CLAUDE.md" ] && ok || fail "t11 --profile value was swallowed as the target DIR"
+grep -qx "profile=strict" "$T11/$STAMP_REL" && ok || fail "t11 stamp missing profile=strict"
+AVN_LOCAL_SRC="$ROOT" bash "$AVN" install --profile=strict -y --no-color "$T11" >/dev/null 2>&1 \
+  || fail "t11 avn --profile=strict exited non-zero"
+OUT="$(AVN_LOCAL_SRC="$ROOT" bash "$AVN" install --profile relaxed -y --no-color "$T11" 2>&1)"; RC=$?
+[ "$RC" -eq 1 ] && ok || fail "t11 avn relax headless: expected exit 1, got $RC"
+assert_contains "t11 avn relax refusal" "$OUT" "needs a human"
+OUT="$(AVN_LOCAL_SRC="$ROOT" bash "$AVN" check "$T11" 2>&1)"; RC=$?
+[ "$RC" -eq 0 ] && ok || fail "t11 avn check: expected exit 0, got $RC"
+assert_contains "t11 check shows profile" "$OUT" "installed $VER (strict)"
+OUT="$(cd "$T11" && bash "$AVN" version 2>&1)" || fail "t11 avn version exited non-zero"
+assert_contains "t11 version shows profile" "$OUT" "$VER (strict)"
 
 printf 'install-version-test: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

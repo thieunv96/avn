@@ -1,15 +1,23 @@
 #!/usr/bin/env bash
 # install.sh — install the ThieuNV Claude Code baseline into a target repo.
 #
-# Sources live under src/ (src/CLAUDE.md, src/settings.json, src/hooks/,
-# src/rules/, src/skills/, src/agents/, src/verify-commands.example) and are
-# installed as TARGET_DIR/CLAUDE.md + TARGET_DIR/.claude/** — the installed
-# layout is unchanged from earlier releases. The src/ dir deliberately has no
-# ".claude" path segment so the guard hooks never block editing the sources,
-# while the installed copies stay protected. settings.json ships as-is: its
-# hook commands already use ${CLAUDE_PROJECT_DIR}, so the baseline is fully
-# self-contained per repo (no rewrite step). A real .claude/verify-commands is
-# never installed — enabling the verify gate is a per-repo opt-in.
+# Sources live under src/ (src/CLAUDE.md, src/settings.json,
+# src/settings.relaxed.json, src/hooks/, src/rules/, src/skills/,
+# src/verify-commands.example) and are installed as TARGET_DIR/CLAUDE.md +
+# TARGET_DIR/.claude/** — the installed layout is unchanged from earlier
+# releases. The src/ dir deliberately has no ".claude" path segment so the
+# guard hooks never block editing the sources, while the installed copies stay
+# protected. settings.json ships as-is: its hook commands already use
+# ${CLAUDE_PROJECT_DIR}, so the baseline is fully self-contained per repo (no
+# rewrite step). A real .claude/verify-commands is never installed — enabling
+# the verify gate is a per-repo opt-in.
+#
+# Guard profiles: --profile strict (default) or relaxed. relaxed installs
+# settings.relaxed.json as .claude/settings.json and stamps profile=relaxed
+# into .claude/avn-version, which the hooks read to lift their project-secret
+# rules. Switching a repo TO relaxed requires an interactive terminal plus an
+# explicit confirmation (no flag bypasses it); the profile then persists
+# across updates until --profile strict is given.
 #
 # Installing INTO a baseline source repo (a target that has src/ + install.sh)
 # refreshes that repo's own installed copy — its RUNNING guard — and therefore
@@ -36,6 +44,7 @@ ASSUME_YES=0
 UNINSTALL=0
 BACKUP_OPT=""          # "", "yes", or "no"
 NO_COLOR_FLAG=0
+REQ_PROFILE=""         # "", "strict", or "relaxed" (from --profile)
 TARGET=""
 AVN_REPO="${AVN_REPO:-thieunv96/avn}"
 AVN_REF="${AVN_REF:-master}"
@@ -59,6 +68,14 @@ Options:
   --no-backup    Overwrite without backups (no prompt).
   -y, --yes      Don't prompt; use defaults (backup = yes).
   --force        Overwrite without backups and without any prompt.
+  --profile P    Guard profile to install: strict (default) or relaxed.
+                 relaxed is for isolated systems with no real secrets: project
+                 .env/key files become readable and docker/DB CLI/package
+                 installs stop prompting; machine credentials (~/.ssh, ~/.aws,
+                 ~/.kube) and destructive-command guards stay blocked.
+                 Switching a repo TO relaxed needs an interactive terminal
+                 plus confirmation — no flag bypasses that. Without --profile
+                 the installed profile is kept across updates.
   --uninstall    Remove the baseline from TARGET_DIR instead of installing:
                  deletes only files byte-identical to the shipped release
                  (modified files are kept with a warning; your own files such
@@ -76,12 +93,12 @@ Env:
   AVN_REF        Branch or tag to fetch, e.g. master or v2.1.0 (default: master).
 
 Installs (from the src/ tree of the baseline) CLAUDE.md, .claude/rules/*.md,
-.claude/skills/** (brainstorm, map, code-review, verify), .claude/agents/*.md
-(if any), the hooks bash-guard.sh, file-guard.sh and verify-gate.sh (executable),
-.claude/verify-commands.example, and .claude/settings.json (shipped as-is;
-hook paths use ${CLAUDE_PROJECT_DIR}). Also writes the baseline version to
-.claude/avn-version (commit this stamp so the whole team can see which
-baseline the repo runs).
+.claude/skills/** (brainstorm, code-review, verify), the hooks bash-guard.sh,
+file-guard.sh and verify-gate.sh (executable), .claude/verify-commands.example,
+and .claude/settings.json (the strict or relaxed profile variant, shipped
+as-is; hook paths use ${CLAUDE_PROJECT_DIR}). Also writes the baseline version
+and guard profile to .claude/avn-version (commit this stamp so the whole team
+can see which baseline the repo runs).
 
 When TARGET_DIR is itself a baseline source repo (it has src/ + install.sh),
 the install refreshes that repo's own installed copy — its running guard —
@@ -100,6 +117,10 @@ while [ $# -gt 0 ]; do
     --force)     FORCE=1 ;;
     --uninstall) UNINSTALL=1 ;;
     --rollback)  ;;          # deprecated no-op: reconcile/cleanup now runs on every install
+    --profile)
+      [ $# -ge 2 ] || { echo "Error: --profile needs a value (strict|relaxed)." >&2; exit 2; }
+      REQ_PROFILE="$2"; shift ;;
+    --profile=*) REQ_PROFILE="${1#--profile=}" ;;
     --no-color)  NO_COLOR_FLAG=1 ;;
     -h|--help)   usage; exit 0 ;;
     --) shift; break ;;
@@ -111,6 +132,15 @@ while [ $# -gt 0 ]; do
   shift
 done
 if [ $# -gt 0 ] && [ -z "$TARGET" ]; then TARGET="$1"; fi
+
+case "$REQ_PROFILE" in
+  ""|strict|relaxed) ;;
+  *) echo "Error: invalid --profile '$REQ_PROFILE' (use strict or relaxed)." >&2; exit 2 ;;
+esac
+if [ -n "$REQ_PROFILE" ] && [ "$UNINSTALL" -eq 1 ]; then
+  echo "Error: --profile cannot be combined with --uninstall (uninstall uses the installed profile)." >&2
+  exit 2
+fi
 
 # ---- Colors / TTY ----
 USE_COLOR=1
@@ -309,18 +339,27 @@ else
   SRC_DESC="remote: ${AVN_REPO}@${AVN_REF}"
 fi
 
-for f in "src/CLAUDE.md" "src/settings.json" "src/hooks/bash-guard.sh" "src/hooks/file-guard.sh" "src/hooks/verify-gate.sh"; do
+for f in "src/CLAUDE.md" "src/settings.json" "src/settings.relaxed.json" "src/hooks/bash-guard.sh" "src/hooks/file-guard.sh" "src/hooks/verify-gate.sh"; do
   if [ -z "${SRC:-}" ] || [ ! -f "$SRC/$f" ]; then
     printf '%b✗%b baseline source is missing %s\n' "$RED" "$RST" "$f" >&2; exit 1
   fi
 done
 
-# ---- Version bookkeeping ----
+# ---- Version + profile bookkeeping ----
 STAMP="$TARGET_ABS/.claude/avn-version"
 NEW_VER="unknown"
 [ -f "$SRC/VERSION" ] && NEW_VER="$(head -n1 "$SRC/VERSION" | tr -d '[:space:]')"
 OLD_VER=""
 [ -f "$STAMP" ] && OLD_VER="$(sed -n 's/^version=//p' "$STAMP" | head -n1)"
+# Effective profile: --profile if given, else the stamped one (so updates keep
+# a relaxed repo relaxed, headless), else strict. Any stamp value other than
+# the exact string "relaxed" reads as strict — same fail-safe as the hooks.
+OLD_PROFILE="strict"
+if [ -f "$STAMP" ] && [ "$(sed -n 's/^profile=//p' "$STAMP" | head -n1)" = "relaxed" ]; then
+  OLD_PROFILE="relaxed"
+fi
+PROFILE="${REQ_PROFILE:-$OLD_PROFILE}"
+[ "$UNINSTALL" -eq 1 ] && PROFILE="$OLD_PROFILE"
 
 # ---- Build the file plan (sources under src/, installed under .claude/) ----
 # settings.json ships as-is: hook commands already use ${CLAUDE_PROJECT_DIR}.
@@ -346,7 +385,12 @@ add_pair "$SRC/src/hooks/bash-guard.sh" "$TARGET_ABS/.claude/hooks/bash-guard.sh
 add_pair "$SRC/src/hooks/file-guard.sh" "$TARGET_ABS/.claude/hooks/file-guard.sh"
 add_pair "$SRC/src/hooks/verify-gate.sh" "$TARGET_ABS/.claude/hooks/verify-gate.sh"
 add_pair "$SRC/src/verify-commands.example" "$TARGET_ABS/.claude/verify-commands.example"
-add_pair "$SRC/src/settings.json" "$TARGET_ABS/.claude/settings.json"
+# settings.json: the installed name is always .claude/settings.json; the shipped
+# source depends on the effective profile (uninstall compares against the
+# stamped profile's variant so a relaxed repo uninstalls cleanly).
+SETTINGS_SRC="$SRC/src/settings.json"
+[ "$PROFILE" = "relaxed" ] && SETTINGS_SRC="$SRC/src/settings.relaxed.json"
+add_pair "$SETTINGS_SRC" "$TARGET_ABS/.claude/settings.json"
 
 # ---- Header ----
 printf '\n'
@@ -363,6 +407,11 @@ elif [ "$OLD_VER" = "$NEW_VER" ]; then
   printf '  %sversion%s %s (unchanged)\n' "$DIM" "$RST" "$NEW_VER"
 else
   printf '  %sversion%s %s → %s\n' "$DIM" "$RST" "$OLD_VER" "$NEW_VER"
+fi
+if [ "$UNINSTALL" -eq 0 ] && [ -n "$OLD_VER" ] && [ "$OLD_PROFILE" != "$PROFILE" ]; then
+  printf '  %sprofile%s %s → %s\n' "$DIM" "$RST" "$OLD_PROFILE" "$PROFILE"
+else
+  printf '  %sprofile%s %s\n' "$DIM" "$RST" "$PROFILE"
 fi
 [ "$DRY_RUN" -eq 1 ] && printf '  %b(dry-run — no changes will be made)%b\n' "$YLW" "$RST"
 
@@ -398,6 +447,30 @@ if [ "$SELF_TARGET" -eq 1 ] && [ "$DRY_RUN" -eq 0 ]; then
     if [ "$MENU_CHOICE" -ne 0 ]; then
       printf '  %b✗%b aborted — nothing changed.\n' "$RED" "$RST"; exit 1
     fi
+  fi
+fi
+
+# ---- Relax gate: switching a repo TO the relaxed profile ----
+# The relaxed profile lifts the project-secret guards (dotenv/key reads,
+# printenv) and drops the docker/DB CLI/package-install prompts. Turning it
+# on must stay a human decision: a real /dev/tty plus an explicit
+# confirmation is required, and no flag (-y/--force included) substitutes for
+# it — an agent session has no TTY and must ask the user to run this.
+# --dry-run stays allowed headless (preview). Leaving relaxed (--profile
+# strict) and re-installing an already-relaxed repo run headless: both keep
+# or tighten the guard, never loosen it.
+if [ "$UNINSTALL" -eq 0 ] && [ "$DRY_RUN" -eq 0 ] && \
+   [ "$PROFILE" = "relaxed" ] && [ "$OLD_PROFILE" != "relaxed" ]; then
+  if [ "$HAVE_TTY" -ne 1 ]; then
+    printf '%b✗%b switching this repo to the RELAXED guard profile needs a human.\n' "$RED" "$RST" >&2
+    printf '  Run %s./install.sh --profile relaxed%s in an interactive terminal — no flag bypasses this (--dry-run is allowed).\n' "$BOLD" "$RST" >&2
+    exit 1
+  fi
+  menu_select "RELAXED profile: project .env/key files become readable, docker/DB CLI/package installs stop prompting. Only for an isolated system with no real secrets. Switch?" \
+              "No  — keep strict (recommended)" \
+              "Yes — this system is isolated, no real secrets; use relaxed"
+  if [ "$MENU_CHOICE" -ne 1 ]; then
+    printf '  %b✗%b aborted — nothing changed.\n' "$RED" "$RST"; exit 1
   fi
 fi
 
@@ -549,14 +622,19 @@ if [ -z "$STAMP_SOURCE" ]; then
 fi
 STAMP_CONTENT="# ThieuNV Claude Code baseline — written by install.sh; do not edit by hand.
 version=$NEW_VER
-source=$STAMP_SOURCE"
+source=$STAMP_SOURCE
+profile=$PROFILE"
 if [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$STAMP_CONTENT" ]; then
   line "$DIM" "=" "unchanged" ".claude/avn-version"; N_UNCHANGED=$((N_UNCHANGED+1))
 else
   if [ -z "$OLD_VER" ]; then
-    line "$GRN" "+" "create" ".claude/avn-version ($NEW_VER)"; N_CREATE=$((N_CREATE+1))
+    line "$GRN" "+" "create" ".claude/avn-version ($NEW_VER, $PROFILE)"; N_CREATE=$((N_CREATE+1))
+  elif [ "$OLD_VER" != "$NEW_VER" ] && [ "$OLD_PROFILE" != "$PROFILE" ]; then
+    line "$YLW" "~" "update" ".claude/avn-version ($OLD_VER → $NEW_VER, $OLD_PROFILE → $PROFILE)"; N_UPDATE=$((N_UPDATE+1))
   elif [ "$OLD_VER" != "$NEW_VER" ]; then
     line "$YLW" "~" "update" ".claude/avn-version ($OLD_VER → $NEW_VER)"; N_UPDATE=$((N_UPDATE+1))
+  elif [ "$OLD_PROFILE" != "$PROFILE" ]; then
+    line "$YLW" "~" "update" ".claude/avn-version ($OLD_PROFILE → $PROFILE)"; N_UPDATE=$((N_UPDATE+1))
   else
     line "$YLW" "~" "update" ".claude/avn-version (source changed)"; N_UPDATE=$((N_UPDATE+1))
   fi
@@ -582,7 +660,7 @@ printf '\n'
 if [ "$DRY_RUN" -eq 1 ]; then
   printf '%b▸ dry-run complete%b — nothing was changed.\n' "$BOLD$YLW" "$RST"
 else
-  printf '%b✓ done%b  %sbaseline %s · created %d · updated %d · unchanged %d' "$BOLD$GRN" "$RST" "$DIM" "$NEW_VER" "$N_CREATE" "$N_UPDATE" "$N_UNCHANGED"
+  printf '%b✓ done%b  %sbaseline %s (%s) · created %d · updated %d · unchanged %d' "$BOLD$GRN" "$RST" "$DIM" "$NEW_VER" "$PROFILE" "$N_CREATE" "$N_UPDATE" "$N_UNCHANGED"
   [ "$N_BACKUP" -gt 0 ] && printf ' · backed up %d' "$N_BACKUP"
   [ "$N_REMOVE" -gt 0 ] && printf ' · removed %d' "$N_REMOVE"
   printf '%b\n' "$RST"

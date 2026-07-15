@@ -5,11 +5,11 @@ A shared Claude Code configuration baseline for ThieuNV's projects:
 - `CLAUDE.md` — quality-focused working agreement (workflow, scope, secrets, production, testing).
 - `.claude/rules/` — path-scoped rules that load on demand: `ui.md`, `realtime-performance.md`, `testing.md`, `migrations.md`, `deploy.md`.
 - `.claude/skills/` — invocable workflows: `/brainstorm` (idea → spec), `/code-review` (independent review in a fresh context), `/verify` (run all verification layers, report evidence).
-- `.claude/hooks/bash-guard.sh` — PreToolUse hook that deterministically blocks dangerous Bash commands (push to main — including a bare `git push` while the checkout sits on main/master, `rm -rf`, secret reads, destructive SQL/redis/mongo/docker/kubectl, `git clean -f`, discarding uncommitted changes via `checkout`/`restore`/`stash drop`, shell edits of the guard files themselves, …).
+- `.claude/hooks/bash-guard.sh` — PreToolUse hook that deterministically blocks dangerous Bash commands (push to main — including a bare `git push` while the checkout sits on main/master, `rm -rf` in any flag order/case plus recursive `rm` outside the project dir, secret reads, destructive SQL/redis/mongo/docker/kubectl, `git clean -f`, discarding uncommitted changes via `checkout`/`restore`/`stash drop`, shell edits of the guard files themselves, …).
 - `.claude/hooks/file-guard.sh` — PreToolUse hook for the file tools (Read/Edit/Write/Grep, …): blocks every dotenv file **except** the placeholder templates `.env.example` / `.env.sample` / `.env.template` / `.env.dist`, and blocks the write tools on the baseline guard files so the agent cannot neutralize its own guard layer.
 - `.claude/hooks/verify-gate.sh` — Stop hook that can enforce "tests green before finishing"; **dormant by default** (see below).
 - `.claude/verify-commands.example` — template for opting in to the verify gate.
-- `.claude/settings.json` — permission baseline (allow / ask / deny) plus the hook wiring.
+- `.claude/settings.json` — permission baseline (allow / ask / deny) plus the hook wiring; ships as the **strict** profile by default, with a **relaxed** variant for isolated systems (see [Guard profiles](#guard-profiles)).
 - `VERSION` + `bin/avn` — SemVer for the baseline and a pip-style manager CLI (`avn install` /
   `update` / `check`); each install stamps `.claude/avn-version` into the target repo.
 
@@ -50,6 +50,7 @@ When a file would be overwritten, you get an arrow-key menu asking whether to ba
 | `--backup` / `--no-backup` | Choose backup behavior without prompting. |
 | `-y`, `--yes` | Don't prompt; use defaults (backup = yes). |
 | `--force` | Overwrite without backups and without prompts. |
+| `--profile strict\|relaxed` | Guard profile to install (default: keep the installed one, else strict). Switching **to** relaxed is interactive-only — see [Guard profiles](#guard-profiles). |
 | `--no-color` | Plain output. |
 
 Requirements: `tar` plus `curl` or `wget` on PATH (standard on Linux/macOS), and `python3` at
@@ -75,6 +76,41 @@ git clone --depth 1 https://github.com/thieunv96/avn.git
 
 When run from a clone, the script installs the local files directly (no download).
 
+## Guard profiles
+
+The baseline ships two guard profiles. The installer stamps the choice into `.claude/avn-version`
+(`profile=strict|relaxed`), the hooks read that stamp at runtime, and the choice persists across
+updates. Anything other than the exact value `relaxed` — a missing line, an old stamp, an unknown
+value — reads as strict, in the hooks and in the installer alike.
+
+| | `strict` (default) | `relaxed` |
+| --- | --- | --- |
+| Project-local secrets (`.env*`, `*.key`, `*.pem`, `*.p12`, `*.pfx`, `credentials.json`, `secrets/`) | blocked (deny rules + hooks) | readable/editable |
+| `printenv` / `echo $SECRET…` | blocked | allowed |
+| `curl` / `wget` | denied | ask |
+| `docker` / `docker compose` | ask | allowed |
+| `psql` / `mysql` / `redis-cli` | ask | allowed |
+| Package installs (`npm install`, `pip install`, …) | ask | allowed |
+
+**What never relaxes:** machine credentials (`~/.ssh`, `~/.aws`, `~/.kube`,
+`~/.docker/config.json`, `kubeconfig`), `rm -rf` in any spelling, recursive `rm` outside the
+project dir, `sudo`/`su`, push to main/master and force pushes, `curl | sh`, destructive
+SQL/redis/mongo, `docker volume rm/prune`, broad `kubectl delete`, `git clean -f` /
+`checkout --` / `restore` / `stash drop`, `npm install -g`, and the self-protection of the guard
+files themselves.
+
+```bash
+avn install --profile relaxed    # or: ./install.sh --profile relaxed [DIR]  (interactive only)
+avn install --profile strict     # tighten back — runs headless
+```
+
+Switching a repo **to** relaxed requires a real terminal plus an explicit confirmation; no flag
+(`-y`/`--force` included) bypasses it. The profile stamp is a guard file, so an agent cannot flip
+it through the normal edit tools or the obvious shell rewrites — but, like the rest of the guard
+layer, it is a seatbelt, not a sandbox (see [Threat model](#threat-model)). Once stamped, updates
+keep the profile (`avn update` on a relaxed repo stays relaxed, headless), and `avn check` /
+`avn version` display it. Use relaxed **only** on isolated systems with no real secrets.
+
 ## Versioning & the `avn` CLI
 
 The baseline is versioned with SemVer: the `VERSION` file is the single source of truth, and every
@@ -99,7 +135,8 @@ mkdir -p ~/.local/bin && curl -fsSL https://raw.githubusercontent.com/thieunv96/
 | `avn version` | CLI version + the baseline version of the current repo. |
 | `avn self-update` | Replace the `avn` script itself with the latest from GitHub. |
 
-Flags after the directory pass through to `install.sh` (`--dry-run`, `-y`, `--force`, …).
+Flags after the directory pass through to `install.sh` (`--dry-run`, `-y`, `--force`,
+`--profile`, …).
 
 **Pinning**: `AVN_REF` (and `avn --ref`) accepts a branch **or a tag**, so a repo can stay on a
 fixed release:
@@ -111,15 +148,19 @@ AVN_REF=v2.1.0 curl -fsSL https://raw.githubusercontent.com/thieunv96/avn/master
 
 ### Releasing (maintainers)
 
-1. Bump `VERSION` and `AVN_CLI_VERSION` in `bin/avn` (the test suite fails if they diverge).
-2. Run the suites: `bash tests/install-version-test.sh && bash tests/bash-guard-test.sh && bash tests/file-guard-test.sh`.
-3. Refresh this repo's own installed copy and include it in the commit: `./install.sh .`
-   (interactive — the self-target gate asks for confirmation).
-4. Commit, then tag and push: `git tag v<version> && git push origin master --tags`.
+All checks run locally — there is no CI on this repo yet, so a release is only as good as this
+checklist:
 
-CI (`.github/workflows/ci.yml`) runs the same three suites plus shellcheck on every push and PR,
-and fails when the root installed copy has drifted from `src/` (self-target `--dry-run` must
-report no pending changes) — a release should only be tagged from a green master.
+1. Bump `VERSION` and `AVN_CLI_VERSION` in `bin/avn` (the test suite fails if they diverge).
+2. Run all four suites: `bash tests/install-version-test.sh && bash tests/bash-guard-test.sh &&
+   bash tests/file-guard-test.sh && bash tests/settings-profile-test.sh` — plus
+   `shellcheck install.sh bin/avn src/hooks/*.sh` if shellcheck is installed.
+3. QA the relax menu once by hand in a scratch repo: `./install.sh --profile relaxed <dir>` —
+   confirm the "No" default aborts and the "Yes" path installs the relaxed settings + stamp.
+4. Refresh this repo's own installed copy and include it in the commit: `./install.sh .`
+   (interactive — the self-target gate asks for confirmation). `./install.sh --dry-run .` must
+   then report no pending changes (no drift between `src/` and the root copy).
+5. Commit, then tag and push: `git tag v<version> && git push origin master --tags`.
 
 ## Day-to-day usage
 
@@ -153,6 +194,17 @@ Know what the guard layer is — and is not — before relying on it:
   root (`.claude/**` — the guard that actually runs) is protected by the deny rules and hooks,
   and refreshing the source repo's own copy (`./install.sh .`) demands a real terminal plus an
   explicit confirmation that no flag bypasses — an agent session cannot self-apply guard changes.
+- **The relaxed profile is installer-gated.** The profile lives in the `.claude/avn-version`
+  stamp, protected the same way as the other guard files: the Edit deny rule + file-guard block
+  the edit tools, and bash-guard blocks the shell vectors (redirects, `sed`/`cp`/`tee`/… and
+  `git checkout` targeting a guard file — matched by operand basename, so a `cd` or a bare
+  filename does not dodge it). The hooks treat anything but the exact value `relaxed` as strict,
+  and switching a repo to relaxed demands a human on a real terminal. This raises the bar; it is
+  not an airtight boundary — a deliberately obfuscated command (an `eval`, a here-doc that writes
+  the stamp) can still get through, the same seatbelt caveat as everything above. Platform caveat,
+  pre-existing and independent of profiles: a `hooks` array in `.claude/settings.local.json`
+  *replaces* the project hooks wiring entirely under Claude Code's settings precedence — the file
+  is deny-listed for edits, but keep it in the reviewed surface.
 - **Hooks are code that runs on every developer machine.** Review the baseline (or pin a reviewed
   tag with `--ref`) before installing it fleet-wide; anyone who can change the source repo can
   change what runs in every governed session.

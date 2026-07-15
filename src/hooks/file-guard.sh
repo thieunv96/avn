@@ -6,6 +6,11 @@
 # .env.dist (which must contain placeholder values only — see CLAUDE.md §7).
 # Permission deny globs cannot express "block .env.* except .env.example"
 # (no negation), so the exception lives here instead of settings.json.
+# The dotenv policy applies in the strict profile only: the relaxed profile
+# (installer-stamped profile=relaxed in .claude/avn-version, for isolated
+# systems with no real secrets) lifts it. The guard-file write protection
+# below applies in EVERY profile. Anything but the exact stamp value
+# "relaxed" means strict — fail-safe default.
 #
 # Also blocks the write tools (Edit/MultiEdit/Write/NotebookEdit) on the
 # baseline guard files (.claude/hooks/*, verify-commands, avn-version) so the
@@ -26,6 +31,14 @@ block() { echo "BLOCKED by baseline policy: $1" >&2; exit 2; }
 # guard is silently disabled.
 command -v python3 >/dev/null 2>&1 || \
   block "file-guard needs python3 to inspect file paths; install python3 or open the file yourself."
+
+# Guard profile: read from the tamper-protected version stamp; anything other
+# than an exact "profile=relaxed" line means strict — fail-safe default.
+PROFILE="strict"
+_stamp="${CLAUDE_PROJECT_DIR:-$PWD}/.claude/avn-version"
+if [ -f "$_stamp" ] && [ "$(sed -n 's/^profile=//p' "$_stamp" 2>/dev/null | head -n1)" = "relaxed" ]; then
+  PROFILE="relaxed"
+fi
 
 LINES=$(python3 -c '
 import json,sys
@@ -53,14 +66,16 @@ while IFS=$'\t' read -r kind val; do
     TOOL) TOOL="$val" ;;
     PATH)
       base=$(basename "$val")
-      case "$base" in
-        .env.example|.env.sample|.env.template|.env.dist) : ;;
-        *)
-          if printf '%s\n' "$base" | grep -Eq '^\.env(\..+)?$'; then
-            block "dotenv files may contain secrets ($base). Only the placeholder templates .env.example / .env.sample / .env.template / .env.dist are readable/editable."
-          fi
-          ;;
-      esac
+      if [ "$PROFILE" = "strict" ]; then
+        case "$base" in
+          .env.example|.env.sample|.env.template|.env.dist) : ;;
+          *)
+            if printf '%s\n' "$base" | grep -Eq '^\.env(\..+)?$'; then
+              block "dotenv files may contain secrets ($base). Only the placeholder templates .env.example / .env.sample / .env.template / .env.dist are readable/editable."
+            fi
+            ;;
+        esac
+      fi
       case "$TOOL" in
         Edit|MultiEdit|Write|NotebookEdit)
           if printf '%s\n' "$val" | grep -Eq '(^|/)\.claude/(hooks/[^/]+|verify-commands|avn-version)$'; then
@@ -73,9 +88,11 @@ while IFS=$'\t' read -r kind val; do
       # Grep can dump file content via its glob param. Same scrub as
       # bash-guard: remove the template names, then any remaining ".env"
       # means the glob can reach a real dotenv file — block, conservatively.
-      scrubbed=$(printf '%s\n' "$val" | sed -E 's/\.env\.(example|sample|template|dist)([^A-Za-z0-9_.]|$)/\2/g')
-      if printf '%s\n' "$scrubbed" | grep -Fq '.env'; then
-        block "glob '$val' can match dotenv files, which may contain secrets. Only the placeholder templates .env.example / .env.sample / .env.template / .env.dist are readable."
+      if [ "$PROFILE" = "strict" ]; then
+        scrubbed=$(printf '%s\n' "$val" | sed -E 's/\.env\.(example|sample|template|dist)([^A-Za-z0-9_.]|$)/\2/g')
+        if printf '%s\n' "$scrubbed" | grep -Fq '.env'; then
+          block "glob '$val' can match dotenv files, which may contain secrets. Only the placeholder templates .env.example / .env.sample / .env.template / .env.dist are readable."
+        fi
       fi
       ;;
   esac
