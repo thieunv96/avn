@@ -157,6 +157,11 @@ The hooks block reading or printing secret material (`.env`, `*.key`, `*.pem`, `
 exception: `.env.example`, `.env.sample`, `.env.template`, and `.env.dist` are readable and
 editable.
 
+Some repos run the baseline's **relaxed profile** (`profile=relaxed` in `.claude/avn-version`;
+isolated systems with no real secrets only). There, project-local `.env`/key files are readable,
+but home-directory credentials (`~/.ssh`, `~/.aws`, `~/.kube`, kubeconfig) stay blocked and all
+destructive-command guards still apply. The profile is set by the installer — never edit the stamp.
+
 - Reference secrets **by variable name only**. Never read, print, grep, copy, encode, or summarize a secret value.
 - If a task requires a secret, stop and ask the user to handle that step.
 - Keep `.env.example` with placeholder values only (`API_KEY=replace-me`). Never put real values in examples, tests, logs, commit messages, or chat.

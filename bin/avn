@@ -22,7 +22,7 @@
 
 set -euo pipefail
 
-AVN_CLI_VERSION="2.6.1"
+AVN_CLI_VERSION="2.7.0"
 AVN_REPO="${AVN_REPO:-thieunv96/avn}"
 AVN_REF="${AVN_REF:-master}"
 AVN_LOCAL_SRC="${AVN_LOCAL_SRC:-}"
@@ -79,9 +79,12 @@ Usage:
   avn self-install | avn self-update | avn help
 
   DIR defaults to the current directory. --ref pins a branch or tag (v2.1.0).
-  Other flags (--dry-run, -y, --force, --backup, --no-backup, --no-color) are
-  passed through to install.sh. check exits 0 when up to date, 1 when outdated,
-  2 on errors (no stamp, network failure) — CI can rely on 0/1.
+  Other flags (--dry-run, -y, --force, --backup, --no-backup, --no-color,
+  --profile strict|relaxed) are passed through to install.sh. Switching a
+  repo to the relaxed guard profile is interactive-only: install.sh asks for
+  confirmation on a real terminal and no flag bypasses that. check exits 0
+  when up to date, 1 when outdated, 2 on errors (no stamp, network failure)
+  — CI can rely on 0/1.
   uninstall removes only files byte-identical to the shipped release (your
   edits and own files are kept); non-interactive runs need -y, preview with
   --dry-run, and pin --ref v<installed> when the repo runs an older release.
@@ -137,6 +140,17 @@ stamp_version() {
   sed -n 's/^version=//p' "$1/.claude/avn-version" | head -n1
 }
 
+stamp_profile() {
+  # prints the installed guard profile (strict when the stamp predates
+  # profiles or holds an unknown value), or nothing when not installed
+  [ -f "$1/.claude/avn-version" ] || return 0
+  if [ "$(sed -n 's/^profile=//p' "$1/.claude/avn-version" | head -n1)" = "relaxed" ]; then
+    echo "relaxed"
+  else
+    echo "strict"
+  fi
+}
+
 latest_version() {
   if [ -n "$AVN_LOCAL_SRC" ]; then
     [ -f "$AVN_LOCAL_SRC/VERSION" ] || return 1
@@ -159,6 +173,8 @@ parse_target_args() {
     case "$1" in
       --ref)   [ $# -ge 2 ] || die "--ref needs a value"; AVN_REF="$2"; shift ;;
       --ref=*) AVN_REF="${1#--ref=}" ;;
+      --profile) [ $# -ge 2 ] || die "--profile needs a value (strict|relaxed)"
+                 PASS+=("$1" "$2"); shift ;;   # value-taking: don't swallow it as DIR
       -h|--help) usage; exit 0 ;;
       -*) PASS+=("$1") ;;
       *)  [ -n "$DIR" ] && die "multiple target dirs given"; DIR="$1" ;;
@@ -190,9 +206,10 @@ cmd_uninstall() {
 cmd_check() {
   parse_target_args "$@"
   [ "${#PASS[@]}" -eq 0 ] || fail_with 2 "unknown option for check: ${PASS[0]}"
-  local installed latest latest_rc=0
+  local installed latest profile latest_rc=0
   installed="$(stamp_version "$DIR")"
   [ -n "$installed" ] || fail_with 2 "no version stamp in $DIR (baseline installed before v2.1.0, or never) — run \"avn install\" first"
+  profile="$(stamp_profile "$DIR")"
   if [ "$HAVE_TTY" -eq 1 ]; then
     # transient status line; fetch stderr is silenced so it cannot garble it
     printf '  %b…%b checking %s@%s for the latest version\r' "$CYN" "$RST" "$AVN_REPO" "$AVN_REF"
@@ -204,11 +221,11 @@ cmd_check() {
   [ "$latest_rc" -eq 0 ] || fail_with 2 "could not read the latest VERSION for ${AVN_REPO}@${AVN_REF}"
   [ -n "$latest" ] || fail_with 2 "empty VERSION at ${AVN_REPO}@${AVN_REF}"
   if [ "$installed" = "$latest" ]; then
-    printf '%b✓%b up to date — installed %s · latest %s %s(%s@%s)%s\n' \
-      "$GRN" "$RST" "$installed" "$latest" "$DIM" "$AVN_REPO" "$AVN_REF" "$RST"
+    printf '%b✓%b up to date — installed %s (%s) · latest %s %s(%s@%s)%s\n' \
+      "$GRN" "$RST" "$installed" "$profile" "$latest" "$DIM" "$AVN_REPO" "$AVN_REF" "$RST"
   else
-    printf '%b!%b outdated — installed %s · latest %s %s(%s@%s)%s — run "avn update"\n' \
-      "$YLW" "$RST" "$installed" "$latest" "$DIM" "$AVN_REPO" "$AVN_REF" "$RST"
+    printf '%b!%b outdated — installed %s (%s) · latest %s %s(%s@%s)%s — run "avn update"\n' \
+      "$YLW" "$RST" "$installed" "$profile" "$latest" "$DIM" "$AVN_REPO" "$AVN_REF" "$RST"
     return 1
   fi
 }
@@ -218,7 +235,7 @@ cmd_version() {
   local v
   v="$(stamp_version "$PWD")"
   if [ -n "$v" ]; then
-    printf '%sbaseline in %s:%s %s\n' "$DIM" "$PWD" "$RST" "$v"
+    printf '%sbaseline in %s:%s %s (%s)\n' "$DIM" "$PWD" "$RST" "$v" "$(stamp_profile "$PWD")"
   else
     printf '%sbaseline in %s:%s not installed\n' "$DIM" "$PWD" "$RST"
   fi
