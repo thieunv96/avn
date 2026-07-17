@@ -199,8 +199,8 @@ These are file-type-specific; detailed guidance loads on demand from `.claude/ru
 - **Realtime / performance-critical code** (`realtime-performance.md`): hot paths such as video
   decode, audio, inference loops, tracking, streaming/GStreamer, camera reconnect. Do not optimize
   without measuring first.
-- **UI work** (`ui.md`): reuse existing components; prioritize readability and clear states for
-  security operators.
+- **UI work** (`ui.md`): security-ops UI for the Japanese market — reuse components/tokens,
+  operator-under-load readability, JA text/locale rules, WCAG/JIS AA, browser-verified changes.
 
 ---
 

@@ -22,7 +22,7 @@
 
 set -euo pipefail
 
-AVN_CLI_VERSION="2.7.0"
+AVN_CLI_VERSION="2.8.0"
 AVN_REPO="${AVN_REPO:-thieunv96/avn}"
 AVN_REF="${AVN_REF:-master}"
 AVN_LOCAL_SRC="${AVN_LOCAL_SRC:-}"
