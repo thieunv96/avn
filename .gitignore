@@ -2,6 +2,10 @@
 CLAUDE.local.md
 .claude/settings.local.json
 
+# Installed baseline copy (output of ./install.sh; src/ is the source of truth)
+/CLAUDE.md
+/.claude/
+
 # Dependencies
 node_modules/
 .venv/
