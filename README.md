@@ -5,6 +5,7 @@ A shared Claude Code configuration baseline for ThieuNV's projects:
 - `CLAUDE.md` — quality-focused working agreement (workflow, scope, secrets, production, testing).
 - `.claude/rules/` — path-scoped rules that load on demand: `ui.md`, `realtime-performance.md`, `testing.md`, `migrations.md`, `deploy.md`.
 - `.claude/skills/` — invocable workflows: `/brainstorm` (idea → spec), `/code-review` (independent review in a fresh context), `/verify` (run all verification layers, report evidence).
+- `.claude/agents/` — task-scoped subagents that run on **Sonnet** (cheaper/faster for heavy delegated work): `web-researcher` (web/docs research), `codebase-explorer` (read-only source exploration with `file:line`), `docs-writer` (documentation grounded in the code). Claude's built-in `Plan` and `Explore` subagents are left untouched, so they keep running on the main conversation's model.
 - `.claude/hooks/bash-guard.sh` — PreToolUse hook that deterministically blocks dangerous Bash commands (push to main — including a bare `git push` while the checkout sits on main/master, `rm -rf` in any flag order/case plus recursive `rm` outside the project dir, secret reads, destructive SQL/redis/mongo/docker/kubectl, `git clean -f`, discarding uncommitted changes via `checkout`/`restore`/`stash drop`, shell edits of the guard files themselves, …).
 - `.claude/hooks/file-guard.sh` — PreToolUse hook for the file tools (Read/Edit/Write/Grep, …): blocks every dotenv file **except** the placeholder templates `.env.example` / `.env.sample` / `.env.template` / `.env.dist`, and blocks the write tools on the baseline guard files so the agent cannot neutralize its own guard layer.
 - `.claude/hooks/verify-gate.sh` — Stop hook that can enforce "tests green before finishing"; **dormant by default** (see below).
@@ -14,8 +15,9 @@ A shared Claude Code configuration baseline for ThieuNV's projects:
   `update` / `check`); each install stamps `.claude/avn-version` into the target repo.
 
 **Repo layout:** the sources of everything above live under **`src/`** (`src/CLAUDE.md`,
-`src/settings.json`, `src/hooks/`, `src/rules/`, `src/skills/`, `src/verify-commands.example`) —
-deliberately with no `.claude` path segment, so the guard hooks never block editing the sources.
+`src/settings.json`, `src/hooks/`, `src/rules/`, `src/skills/`, `src/agents/`,
+`src/verify-commands.example`) — deliberately with no `.claude` path segment, so the guard hooks
+never block editing the sources.
 The `CLAUDE.md` and `.claude/**` at this repo's root are its own **installed copy** (the baseline
 dogfoods itself). Refresh that copy with `./install.sh .` — it only runs in an interactive
 terminal and asks for confirmation; no flag bypasses it (see Threat model).

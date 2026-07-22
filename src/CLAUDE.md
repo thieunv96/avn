@@ -35,6 +35,7 @@ Implement, then Verify and report.
 
 - Read the relevant existing code before writing any. Reuse existing patterns (see §3).
 - **Always use a sub-agent for web research and for exploring a large or unfamiliar codebase.** It works in its own context and returns only the findings, keeping the main context focused. Reading a few known files directly is fine; broad searching and web research are not.
+- The baseline ships task-scoped subagents for exactly this (all on Sonnet — cheap and fast for heavy delegated work): `web-researcher` (web/docs research), `codebase-explorer` (read-only source exploration with `file:line`), `docs-writer` (documentation grounded in the code). Prefer delegating research/exploration/doc-writing to them; the built-in `Plan` and `Explore` subagents keep running on the main model.
 - Launch independent sub-agents in parallel when their searches do not depend on each other.
 - For a raw idea or a problem with no known solution yet, run the `/brainstorm` skill: it interviews the user, researches options in parallel, and produces a spec.
 
