@@ -127,6 +127,9 @@
   },
 
   "defaultMode": "default",
+  "worktree": {
+    "bgIsolation": "none"
+  },
   "enableAllProjectMcpServers": false,
   "cleanupPeriodDays": 30,
 
