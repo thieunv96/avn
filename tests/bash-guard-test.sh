@@ -242,6 +242,13 @@ check 0 'ls .claude/hooks/'
 check 0 'bash tests/bash-guard-test.sh'
 check 2 'git checkout .claude/avn-version'   # reverting the stamp would flip the guard profile
 check 2 'git checkout HEAD~1 .claude/hooks/bash-guard.sh'
+# agent-guard.sh (v2.10.0) is a guard file like the others
+check 2 'echo x > .claude/hooks/agent-guard.sh'
+check 2 'sed -i "s/sonnet/haiku/" .claude/hooks/agent-guard.sh'
+check 2 'git checkout HEAD~1 .claude/hooks/agent-guard.sh'
+check 2 'cd .claude/hooks && chmod -x agent-guard.sh'   # 14b basename backstop must know the new hook
+check 0 'cat .claude/hooks/agent-guard.sh'
+check 0 'bash tests/agent-guard-test.sh'
 # 14b) operand-basename + directory-checkout backstop (prefix match dodged)
 check 2 'cd .claude && sed -i s/strict/relaxed/ avn-version'
 check 2 'cd .claude && echo profile=relaxed >> avn-version'

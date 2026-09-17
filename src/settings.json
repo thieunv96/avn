@@ -1,5 +1,5 @@
 {
-  "$comment": "ThieuNV Claude Code baseline — .claude/settings.json (project-level, shipped as-is by install.sh). This is the STRICT profile (the default); settings.relaxed.json is the relaxed variant selected via install.sh --profile. Rule syntax: Bash uses exact or prefix match with ':*' (NOT regex). Read/Edit use gitignore-style paths. Precedence: deny > ask > allow. Hook paths use ${CLAUDE_PROJECT_DIR} so every repo (including this one) is guarded. Dotenv policy lives in hooks/file-guard.sh (blocks all .env* except the placeholder templates .env.example/sample/template/dist — deny globs cannot express that exception); the bare .env deny rules here are defense-in-depth. The .claude/* self-edit denies keep the agent from neutralizing its own guard layer (file-guard and bash-guard rule 14 are the deterministic backstop). Verify rules after install with /permissions inside Claude Code.",
+  "$comment": "ThieuNV Claude Code baseline — .claude/settings.json (project-level, shipped as-is by install.sh). This is the STRICT profile (the default); settings.relaxed.json is the relaxed variant selected via install.sh --profile. Rule syntax: Bash uses exact or prefix match with ':*' (NOT regex). Read/Edit use gitignore-style paths. Precedence: deny > ask > allow — first match wins, so an ask rule still prompts when the bare 'Bash' allow rule also matches. Auto-accept (v2.10.0): permissions.defaultMode acceptEdits runs file edits without prompts and the bare 'Bash' allow rule runs every Bash command no deny/ask rule names, so the deny/ask lists plus the PreToolUse hooks are the only prompt/blocking boundary (defaultMode is read ONLY inside permissions; a top-level key is ignored). Subagent model policy: hooks/agent-guard.sh blocks any subagent except Plan that would not run on Sonnet or Opus, Agent(fork) is denied because forks always run on the main model, and env CLAUDE_CODE_SUBAGENT_MODEL=sonnet gives general-purpose/model-less custom agents a compliant default. Hook paths use ${CLAUDE_PROJECT_DIR} so every repo (including this one) is guarded. Dotenv policy lives in hooks/file-guard.sh (blocks all .env* except the placeholder templates .env.example/sample/template/dist — deny globs cannot express that exception); the bare .env deny rules here are defense-in-depth. The .claude/* self-edit denies keep the agent from neutralizing its own guard layer (file-guard and bash-guard rule 14 are the deterministic backstop). Verify rules after install with /permissions inside Claude Code.",
 
   "permissions": {
 
@@ -40,11 +40,17 @@
       "Edit(.claude/settings.local.json)",
       "Edit(.claude/hooks/**)",
       "Edit(.claude/verify-commands)",
-      "Edit(.claude/avn-version)"
+      "Edit(.claude/avn-version)",
+
+      "Agent(fork)"
     ],
 
     "ask": [
       "Bash(git push:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(gh release:*)",
+      "Bash(gh repo delete:*)",
       "Bash(npx playwright install:*)",
       "Bash(npm install:*)",
       "Bash(yarn add:*)",
@@ -72,6 +78,7 @@
     ],
 
     "allow": [
+      "Bash",
       "Bash(git status:*)",
       "Bash(git diff:*)",
       "Bash(git log:*)",
@@ -118,15 +125,17 @@
       "Bash(node --version)",
       "Bash(npm --version)",
       "Bash(python --version)"
-    ]
+    ],
+
+    "defaultMode": "acceptEdits"
   },
 
-  "$comment-env": "CLAUDE_AFK_TIMEOUT_MS disables the 60s AskUserQuestion auto-advance ('AFK mode') introduced unannounced in Claude Code v2.1.198, which made interview flows (/brainstorm) proceed without the user's answer. Undocumented var (github.com/anthropics/claude-code/issues/73125); versions without AFK ignore it harmlessly. If your Claude Code exposes a question-timeout toggle in /config, keep it OFF.",
+  "$comment-env": "CLAUDE_AFK_TIMEOUT_MS disables the 60s AskUserQuestion auto-advance ('AFK mode') introduced unannounced in Claude Code v2.1.198, which made interview flows (/brainstorm) proceed without the user's answer. Undocumented var (github.com/anthropics/claude-code/issues/73125); versions without AFK ignore it harmlessly. If your Claude Code exposes a question-timeout toggle in /config, keep it OFF. CLAUDE_CODE_SUBAGENT_MODEL=sonnet is the default model for subagents that neither pass a model nor pin one in their definition (general-purpose, model-less custom agents); the built-in Explore ignores it and must be given model explicitly. hooks/agent-guard.sh enforces the policy either way.",
   "env": {
-    "CLAUDE_AFK_TIMEOUT_MS": "2147483647"
+    "CLAUDE_AFK_TIMEOUT_MS": "2147483647",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"
   },
 
-  "defaultMode": "default",
   "worktree": {
     "bgIsolation": "none"
   },
@@ -150,6 +159,15 @@
           {
             "type": "command",
             "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/file-guard.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/agent-guard.sh"
           }
         ]
       }

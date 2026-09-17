@@ -308,7 +308,7 @@ def split(s):
 toks = split(sys.argv[1])
 SEP = {"&&", "||", ";", "|", "&"}
 MUT = {"mv","cp","rm","chmod","chown","tee","sed","awk","truncate","ln","patch","dd","install","perl","ruby","node","npx"}
-GUARD = {"avn-version","bash-guard.sh","file-guard.sh","verify-gate.sh","verify-commands","settings.local.json"}
+GUARD = {"avn-version","bash-guard.sh","file-guard.sh","agent-guard.sh","verify-gate.sh","verify-commands","settings.local.json"}
 def is_mut(t):
     b = os.path.basename(t)
     return b in MUT or b.startswith("python")

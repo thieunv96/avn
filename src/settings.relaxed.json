@@ -1,5 +1,5 @@
 {
-  "$comment": "ThieuNV Claude Code baseline — .claude/settings.json, RELAXED profile (installed by install.sh --profile relaxed; the default/strict variant is settings.json). For isolated systems with no real secrets only: project-local secret reads (.env, keys, certs, secrets/) are permitted, docker / DB CLIs / package installs run without prompts, and curl/wget drop from deny to ask. Machine credentials (~/.ssh, ~/.aws, ~/.kube, kubeconfig), destructive commands (rm -rf, DROP/TRUNCATE, docker volume rm, git push to main) and the .claude/* self-edit denies stay exactly as in strict — the hooks read profile=relaxed from .claude/avn-version and lift only their project-secret rules. tests/settings-profile-test.sh asserts this file differs from settings.json in exactly the documented ways. Verify rules after install with /permissions inside Claude Code.",
+  "$comment": "ThieuNV Claude Code baseline — .claude/settings.json, RELAXED profile (installed by install.sh --profile relaxed; the default/strict variant is settings.json). For isolated systems with no real secrets only: project-local secret reads (.env, keys, certs, secrets/) are permitted, docker / DB CLIs / package installs run without prompts, and curl/wget drop from deny to ask. Machine credentials (~/.ssh, ~/.aws, ~/.kube, kubeconfig), destructive commands (rm -rf, DROP/TRUNCATE, docker volume rm, git push to main) and the .claude/* self-edit denies stay exactly as in strict — the hooks read profile=relaxed from .claude/avn-version and lift only their project-secret rules. Auto-accept and the subagent model policy are identical to strict (permissions.defaultMode acceptEdits + bare 'Bash' allow; hooks/agent-guard.sh + Agent(fork) deny; env CLAUDE_CODE_SUBAGENT_MODEL=sonnet) — see the strict file's comment for the rationale. tests/settings-profile-test.sh asserts this file differs from settings.json in exactly the documented ways. Verify rules after install with /permissions inside Claude Code.",
 
   "permissions": {
 
@@ -28,11 +28,17 @@
       "Edit(.claude/settings.local.json)",
       "Edit(.claude/hooks/**)",
       "Edit(.claude/verify-commands)",
-      "Edit(.claude/avn-version)"
+      "Edit(.claude/avn-version)",
+
+      "Agent(fork)"
     ],
 
     "ask": [
       "Bash(git push:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(gh release:*)",
+      "Bash(gh repo delete:*)",
       "Bash(curl:*)",
       "Bash(wget:*)",
       "Bash(kubectl:*)",
@@ -50,6 +56,7 @@
     ],
 
     "allow": [
+      "Bash",
       "Bash(git status:*)",
       "Bash(git diff:*)",
       "Bash(git log:*)",
@@ -108,15 +115,20 @@
       "Bash(psql:*)",
       "Bash(mysql:*)",
       "Bash(redis-cli:*)"
-    ]
+    ],
+
+    "defaultMode": "acceptEdits"
   },
 
-  "$comment-env": "CLAUDE_AFK_TIMEOUT_MS disables the 60s AskUserQuestion auto-advance ('AFK mode') introduced unannounced in Claude Code v2.1.198, which made interview flows (/brainstorm) proceed without the user's answer. Undocumented var (github.com/anthropics/claude-code/issues/73125); versions without AFK ignore it harmlessly. If your Claude Code exposes a question-timeout toggle in /config, keep it OFF.",
+  "$comment-env": "CLAUDE_AFK_TIMEOUT_MS disables the 60s AskUserQuestion auto-advance ('AFK mode') introduced unannounced in Claude Code v2.1.198, which made interview flows (/brainstorm) proceed without the user's answer. Undocumented var (github.com/anthropics/claude-code/issues/73125); versions without AFK ignore it harmlessly. If your Claude Code exposes a question-timeout toggle in /config, keep it OFF. CLAUDE_CODE_SUBAGENT_MODEL=sonnet is the default model for subagents that neither pass a model nor pin one in their definition (general-purpose, model-less custom agents); the built-in Explore ignores it and must be given model explicitly. hooks/agent-guard.sh enforces the policy either way.",
   "env": {
-    "CLAUDE_AFK_TIMEOUT_MS": "2147483647"
+    "CLAUDE_AFK_TIMEOUT_MS": "2147483647",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"
   },
 
-  "defaultMode": "default",
+  "worktree": {
+    "bgIsolation": "none"
+  },
   "enableAllProjectMcpServers": false,
   "cleanupPeriodDays": 30,
 
@@ -137,6 +149,15 @@
           {
             "type": "command",
             "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/file-guard.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/agent-guard.sh"
           }
         ]
       }

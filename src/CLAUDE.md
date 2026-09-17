@@ -35,7 +35,8 @@ Implement, then Verify and report.
 
 - Read the relevant existing code before writing any. Reuse existing patterns (see §3).
 - **Always use a sub-agent for web research and for exploring a large or unfamiliar codebase.** It works in its own context and returns only the findings, keeping the main context focused. Reading a few known files directly is fine; broad searching and web research are not.
-- The baseline ships task-scoped subagents for exactly this (all on Sonnet — cheap and fast for heavy delegated work): `web-researcher` (web/docs research), `codebase-explorer` (read-only source exploration with `file:line`), `docs-writer` (documentation grounded in the code). Prefer delegating research/exploration/doc-writing to them; the built-in `Plan` and `Explore` subagents keep running on the main model.
+- The baseline ships task-scoped subagents for exactly this, all pinned to Sonnet (cheap and fast for heavy delegated work): `web-researcher` (web/docs research), `codebase-explorer` (read-only source exploration with `file:line`), `docs-writer` (documentation grounded in the code). Prefer them for research, exploration and doc-writing.
+- **Subagent model policy (enforced by `agent-guard.sh`):** every subagent except the built-in `Plan` runs on Sonnet or Opus — `Explore`, `general-purpose`, `claude-code-guide` and custom agents alike, in every permission mode, plan mode included. Pass `model: "sonnet"` (research, exploration, search, docs) or `model: "opus"` (review, complex reasoning) explicitly; the baseline agents are pinned to Sonnet and `CLAUDE_CODE_SUBAGENT_MODEL=sonnet` covers `general-purpose`, but the built-in `Explore` ignores that default and is blocked without an explicit `model`. Only `Plan` may inherit the main model. Forks (`subagent_type: "fork"`) are denied — spawn a fresh subagent with a self-contained prompt instead.
 - Launch independent sub-agents in parallel when their searches do not depend on each other.
 - For a raw idea or a problem with no known solution yet, run the `/brainstorm` skill: it interviews the user, researches options in parallel, and produces a spec.
 
@@ -59,6 +60,8 @@ State a short plan before large changes:
 1. ...
 ## Assumptions
 - ...
+## Not requested — needs your OK
+- ...
 ## Need confirmation
 - ...
 ```
@@ -69,6 +72,12 @@ code, or unclear business logic.
 
 Assumptions about business intent must be confirmed with the user (AskUserQuestion) before
 implementing — never proceed on a guess about what the user meant.
+
+**Nothing the user did not ask for enters the plan without their OK.** Anything inferred or added
+beyond the literal request — an extra fix, a refactor, a dependency, a "while I'm here" cleanup, a
+wider scope, a test outside the change's blast radius — goes under `## Not requested — needs your OK`
+and is confirmed with AskUserQuestion before implementation starts. Declined or unanswered items are
+not implemented; mention them in the final notes only (§4).
 
 ### Implement (test-driven, pragmatically)
 
@@ -108,7 +117,7 @@ Do not implement from memory when the repository already has an example.
 ## 4. Scope and simplicity
 
 - Make the smallest safe change that solves the task. Every changed line should trace back to the request.
-- Do not add features, abstractions, configurability, dependencies, or refactors that were not requested.
+- Do not add features, abstractions, configurability, dependencies, or refactors that were not requested — if you believe one is needed, list it under `## Not requested — needs your OK` (§2) and ask instead of adding it.
 - Do not clean up adjacent code, reformat unrelated files, rename files unless required, or delete unrelated dead code. Match the existing project style even if you would do it differently.
 - If you notice unrelated problems, mention them in the final notes instead of fixing them silently.
 - If the change becomes larger than expected, stop and explain why before continuing.
@@ -117,8 +126,13 @@ Do not implement from memory when the repository already has an example.
 
 ## 5. Ask before doing these things
 
+The baseline starts sessions in `acceptEdits` with Bash pre-allowed, so most tool calls run without
+a permission prompt. **No prompt is not approval.** This list and §8 apply exactly as if every call
+prompted — ask with AskUserQuestion and wait for the answer.
+
 Always ask before:
 
+- Adding anything the user did not ask for — an extra fix, refactor, dependency, or scope extension (§2).
 - Adding a new dependency, or adding/changing MCP/external tool configuration.
 - Changing public API behavior.
 - Changing database schema or migrations, or running migrations.

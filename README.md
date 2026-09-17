@@ -4,13 +4,14 @@ A shared Claude Code configuration baseline for ThieuNV's projects:
 
 - `CLAUDE.md` — quality-focused working agreement (workflow, scope, secrets, production, testing).
 - `.claude/rules/` — path-scoped rules that load on demand: `ui.md`, `realtime-performance.md`, `testing.md`, `migrations.md`, `deploy.md`.
-- `.claude/skills/` — invocable workflows: `/brainstorm` (idea → spec), `/code-review` (independent review in a fresh context), `/verify` (run all verification layers, report evidence).
-- `.claude/agents/` — task-scoped subagents that run on **Sonnet** (cheaper/faster for heavy delegated work): `web-researcher` (web/docs research), `codebase-explorer` (read-only source exploration with `file:line`), `docs-writer` (documentation grounded in the code). Claude's built-in `Plan` and `Explore` subagents are left untouched, so they keep running on the main conversation's model.
+- `.claude/skills/` — invocable workflows: `/brainstorm` (idea → spec), `/code-review` (independent review in a fresh context, pinned to Opus), `/verify` (run all verification layers, report evidence).
+- `.claude/agents/` — task-scoped subagents pinned to **Sonnet** (cheaper/faster for heavy delegated work): `web-researcher` (web/docs research), `codebase-explorer` (read-only source exploration with `file:line`), `docs-writer` (documentation grounded in the code). **Subagent model policy:** every subagent except the built-in `Plan` must run on Sonnet or Opus — in every permission mode, plan mode included — and forks are denied; `agent-guard.sh` enforces it (below), and `CLAUDE_CODE_SUBAGENT_MODEL=sonnet` in `settings.json` gives model-less agents a compliant default (the built-in `Explore` ignores it and needs an explicit `model`).
 - `.claude/hooks/bash-guard.sh` — PreToolUse hook that deterministically blocks dangerous Bash commands (push to main — including a bare `git push` while the checkout sits on main/master, `rm -rf` in any flag order/case plus recursive `rm` outside the project dir, secret reads, destructive SQL/redis/mongo/docker/kubectl, `git clean -f`, discarding uncommitted changes via `checkout`/`restore`/`stash drop`, shell edits of the guard files themselves, …).
 - `.claude/hooks/file-guard.sh` — PreToolUse hook for the file tools (Read/Edit/Write/Grep, …): blocks every dotenv file **except** the placeholder templates `.env.example` / `.env.sample` / `.env.template` / `.env.dist`, and blocks the write tools on the baseline guard files so the agent cannot neutralize its own guard layer.
+- `.claude/hooks/agent-guard.sh` — PreToolUse hook for the `Agent` tool: blocks any subagent call that would not run on Sonnet or Opus (a missing `model` inherits the main model), except the built-in `Plan`; `subagent_type: "fork"` is always blocked (and denied by `Agent(fork)` in `settings.json`). It resolves the model the way Claude Code does — call parameter, then the agent definition's `model:` frontmatter, then `CLAUDE_CODE_SUBAGENT_MODEL` — and tells Claude how to re-issue the call.
 - `.claude/hooks/verify-gate.sh` — Stop hook that can enforce "tests green before finishing"; **dormant by default** (see below).
 - `.claude/verify-commands.example` — template for opting in to the verify gate.
-- `.claude/settings.json` — permission baseline (allow / ask / deny) plus the hook wiring; ships as the **strict** profile by default, with a **relaxed** variant for isolated systems (see [Guard profiles](#guard-profiles)).
+- `.claude/settings.json` — permission baseline (allow / ask / deny) plus the hook wiring. Sessions start in **`acceptEdits`** with the bare `Bash` rule allowed, so file edits and every Bash command that no deny/ask rule names run without a prompt — the deny/ask lists and the hooks are the boundary (see [Auto-accept](#auto-accept-what-still-prompts-or-blocks)). Ships as the **strict** profile by default, with a **relaxed** variant for isolated systems (see [Guard profiles](#guard-profiles)).
 - `VERSION` + `bin/avn` — SemVer for the baseline and a pip-style manager CLI (`avn install` /
   `update` / `check`); each install stamps `.claude/avn-version` into the target repo.
 
@@ -19,8 +20,9 @@ A shared Claude Code configuration baseline for ThieuNV's projects:
 `src/verify-commands.example`) — deliberately with no `.claude` path segment, so the guard hooks
 never block editing the sources.
 The `CLAUDE.md` and `.claude/**` at this repo's root are its own **installed copy** (the baseline
-dogfoods itself). Refresh that copy with `./install.sh .` — it only runs in an interactive
-terminal and asks for confirmation; no flag bypasses it (see Threat model).
+dogfoods itself) and are **untracked** via `.gitignore` since v2.8.0. Refresh that copy with
+`./install.sh .` — it only runs in an interactive terminal and asks for confirmation; no flag
+bypasses it (see Threat model).
 
 ## Install — one command, no clone needed
 
@@ -57,7 +59,7 @@ When a file would be overwritten, you get an arrow-key menu asking whether to ba
 
 Requirements: `tar` plus `curl` or `wget` on PATH (standard on Linux/macOS), and `python3` at
 runtime — the guard hooks parse tool-call JSON with it and **fail closed**: without python3 every
-Bash/file tool call is blocked until it is installed.
+Bash/file tool call **and every subagent spawn** is blocked until it is installed.
 
 Pin a different source with env vars:
 
@@ -93,13 +95,15 @@ value — reads as strict, in the hooks and in the installer alike.
 | `docker` / `docker compose` | ask | allowed |
 | `psql` / `mysql` / `redis-cli` | ask | allowed |
 | Package installs (`npm install`, `pip install`, …) | ask | allowed |
+| Auto-accept (`permissions.defaultMode: acceptEdits` + bare `Bash` allow; deny/ask rules still block or prompt) | on | on |
 
 **What never relaxes:** machine credentials (`~/.ssh`, `~/.aws`, `~/.kube`,
 `~/.docker/config.json`, `kubeconfig`), `rm -rf` in any spelling, recursive `rm` outside the
 project dir, `sudo`/`su`, push to main/master and force pushes, `curl | sh`, destructive
 SQL/redis/mongo, `docker volume rm/prune`, broad `kubectl delete`, `git clean -f` /
-`checkout --` / `restore` / `stash drop`, `npm install -g`, and the self-protection of the guard
-files themselves.
+`checkout --` / `restore` / `stash drop`, `npm install -g`, the subagent model policy
+(`agent-guard.sh` plus the `Agent(fork)` deny), and the self-protection of the guard files
+themselves.
 
 ```bash
 avn install --profile relaxed    # or: ./install.sh --profile relaxed [DIR]  (interactive only)
@@ -112,6 +116,29 @@ it through the normal edit tools or the obvious shell rewrites — but, like the
 layer, it is a seatbelt, not a sandbox (see [Threat model](#threat-model)). Once stamped, updates
 keep the profile (`avn update` on a relaxed repo stays relaxed, headless), and `avn check` /
 `avn version` display it. Use relaxed **only** on isolated systems with no real secrets.
+
+## Auto-accept: what still prompts or blocks
+
+Since v2.10.0 both profiles set `permissions.defaultMode` to `acceptEdits` and allow the bare `Bash`
+rule, so a governed session runs file edits and any Bash command **without a permission prompt**
+unless a rule or hook says otherwise. Claude Code evaluates rules deny → ask → allow, first match
+wins, so the boundary is exactly:
+
+- **Blocked, no prompt:** every `deny` rule (`sudo`, `rm -rf`, force pushes, `curl`/`wget` in strict,
+  secret paths, guard-file edits, `Agent(fork)`, …) and every PreToolUse hook rule (`bash-guard.sh`,
+  `file-guard.sh`, `agent-guard.sh`). Deny rules win in every permission mode.
+- **Still prompts:** every `ask` rule — `git push`, `git reset --hard`, `gh pr merge` / `gh release` /
+  `gh repo delete`, package installs, docker compose, DB CLIs, `kubectl`/`helm`/`terraform`/`ansible`,
+  cloud CLIs, `ssh`/`scp`/`rsync`, `systemctl` (strict; the relaxed profile drops the docker/DB/package
+  prompts). An ask rule prompts even though the bare `Bash` allow rule also matches.
+- **Runs silently:** everything else. That is the point — but it means "no prompt" is not approval:
+  CLAUDE.md §5/§8 (ask before dependencies, infra, migrations, production, …) apply as if every call
+  prompted. Add project-specific `ask`/`deny` rules in `.claude/settings.local.json` or your user
+  settings when a repo needs more prompts; a user-level deny always wins over a project allow.
+
+`defaultMode` is only honoured inside `permissions` — a top-level key is silently ignored (earlier
+baselines shipped it there, so they never changed the mode). Switch modes per session with
+Shift+Tab or `--permission-mode`; the project setting only picks the starting mode.
 
 ## Versioning & the `avn` CLI
 
@@ -154,14 +181,16 @@ All checks run locally — there is no CI on this repo yet, so a release is only
 checklist:
 
 1. Bump `VERSION` and `AVN_CLI_VERSION` in `bin/avn` (the test suite fails if they diverge).
-2. Run all four suites: `bash tests/install-version-test.sh && bash tests/bash-guard-test.sh &&
-   bash tests/file-guard-test.sh && bash tests/settings-profile-test.sh` — plus
+2. Run all five suites: `bash tests/install-version-test.sh && bash tests/bash-guard-test.sh &&
+   bash tests/file-guard-test.sh && bash tests/agent-guard-test.sh &&
+   bash tests/settings-profile-test.sh` — plus
    `shellcheck install.sh bin/avn src/hooks/*.sh` if shellcheck is installed.
 3. QA the relax menu once by hand in a scratch repo: `./install.sh --profile relaxed <dir>` —
    confirm the "No" default aborts and the "Yes" path installs the relaxed settings + stamp.
-4. Refresh this repo's own installed copy and include it in the commit: `./install.sh .`
-   (interactive — the self-target gate asks for confirmation). `./install.sh --dry-run .` must
-   then report no pending changes (no drift between `src/` and the root copy).
+4. Optionally refresh this repo's own installed copy to dogfood the release: `./install.sh .`
+   (interactive — the self-target gate asks for confirmation). The copy is untracked since v2.8.0,
+   so there is nothing to commit; `./install.sh --dry-run .` afterwards must report no pending
+   changes (no drift between `src/` and the root copy).
 5. Commit, then tag and push: `git tag v<version> && git push origin master --tags`.
 
 ## Day-to-day usage
@@ -174,6 +203,7 @@ checklist:
 | Finished coding | `/verify` — runs every layer the project defines, reports evidence |
 | Before a PR / after non-trivial changes | `/code-review` — independent review in a fresh context |
 | Changed a convention/pattern/signature | Pattern sweep (CLAUDE.md §3) — update or list all similar occurrences |
+| Heavy research / exploration / web lookup | Delegate to a subagent with `model: "sonnet"` (or the shipped Sonnet agents); `agent-guard.sh` blocks anything else except `Plan` |
 
 ## Threat model
 
@@ -207,11 +237,20 @@ Know what the guard layer is — and is not — before relying on it:
   pre-existing and independent of profiles: a `hooks` array in `.claude/settings.local.json`
   *replaces* the project hooks wiring entirely under Claude Code's settings precedence — the file
   is deny-listed for edits, but keep it in the reviewed surface.
+- **No prompt is not approval.** `acceptEdits` plus the bare `Bash` allow rule remove most permission
+  prompts, so the deny/ask lists and the hooks are the only deterministic boundary left; everything
+  they do not name runs silently. CLAUDE.md §5/§8 still bind the agent, and a repo that needs more
+  prompts adds its own `ask`/`deny` rules (see [Auto-accept](#auto-accept-what-still-prompts-or-blocks)).
+- **agent-guard judges the requested model, not the served one.** If an `availableModels` allowlist
+  substitutes a model, or a future Claude Code changes how built-in agents resolve theirs, the hook
+  cannot see it. Forked skills (`context: fork`) do not pass through the `Agent` tool either —
+  `/code-review` pins `model: opus` in its own frontmatter for that reason.
 - **Hooks are code that runs on every developer machine.** Review the baseline (or pin a reviewed
   tag with `--ref`) before installing it fleet-wide; anyone who can change the source repo can
   change what runs in every governed session.
-- **python3 is required.** bash-guard and file-guard fail closed without it (every guarded tool
-  call is blocked); verify-gate fails open by design (a Stop gate must never brick a session).
+- **python3 is required.** bash-guard, file-guard and agent-guard fail closed without it (every
+  guarded tool call — Bash, file tools, subagent spawns — is blocked); verify-gate fails open by
+  design (a Stop gate must never brick a session).
 
 ## Optional: enforced verification on Stop
 
@@ -272,6 +311,9 @@ hooks and permission rules no longer apply.
 
 - Project `.claude/settings.json` permissions **merge** with your user-level `~/.claude/settings.json`
   (they do not clobber it). A deny rule at either level always wins.
+- The project `permissions.defaultMode` (`acceptEdits`) sets the **starting** mode of sessions in a
+  governed repo and outranks the user-level default; Shift+Tab or `--permission-mode` changes it per
+  session. `auto` and `bypassPermissions` cannot be granted from project settings.
 - Run the `curl | bash` bootstrap in a **normal terminal**, not inside a Claude Code session that is
   already governed by this baseline: the baseline's own deny-list blocks `curl`/`wget` and the hook
   blocks `curl | sh`. (Bootstrapping a fresh repo from a plain shell is the expected flow.)

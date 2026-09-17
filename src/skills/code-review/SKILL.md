@@ -2,6 +2,7 @@
 name: code-review
 description: Independent review of the current diff in a fresh context. Use at the Review step for any non-trivial change, or when the user asks for a review of uncommitted or branch work.
 context: fork
+model: opus
 allowed-tools: Read, Grep, Glob, Bash
 ---
 

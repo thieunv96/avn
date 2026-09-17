@@ -3,6 +3,11 @@
 # src/settings.relaxed.json must differ from src/settings.json in EXACTLY the
 # documented ways (this file is the machine-checked delta spec); everything
 # outside permissions.deny/ask/allow must be identical (except $comment*).
+# The v2.10.0 invariants shared by both profiles (permissions.defaultMode
+# acceptEdits, the bare Bash allow rule, the Agent(fork) deny, the new ask
+# rules, the agent-guard hook wiring, the subagent model env default) are
+# asserted explicitly below — the identical-keys check skips the whole
+# permissions object, and Claude Code reads defaultMode ONLY from there.
 # Usage: bash tests/settings-profile-test.sh
 
 set -u
@@ -84,9 +89,31 @@ if strip(strict) != strip(relaxed):
                  if strip(strict).get(k) != strip(relaxed).get(k)]
     fail(f"non-permission keys differ between profiles: {sorted(diff_keys)}")
 
+# ---- v2.10.0 invariants — identical in both profiles ----
+AGENT_HOOK = "${CLAUDE_PROJECT_DIR}/.claude/hooks/agent-guard.sh"
+NEW_ASK = ("Bash(git reset --hard:*)", "Bash(gh pr merge:*)",
+           "Bash(gh release:*)", "Bash(gh repo delete:*)")
 for label, d in (("strict", strict), ("relaxed", relaxed)):
-    if d.get("defaultMode") != "default":
-        fail(f'defaultMode must stay "default" in {label}, got {d.get("defaultMode")!r}')
+    p = d["permissions"]
+    if "defaultMode" in d:
+        fail(f'{label}: top-level "defaultMode" is ignored by Claude Code — use permissions.defaultMode')
+    if p.get("defaultMode") != "acceptEdits":
+        fail(f'{label}: permissions.defaultMode must be "acceptEdits", got {p.get("defaultMode")!r}')
+    if "Bash" not in p["allow"]:
+        fail(f'{label}: permissions.allow must contain the bare "Bash" rule (auto-accept)')
+    for rule in NEW_ASK:
+        if rule not in p["ask"]:
+            fail(f"{label}: permissions.ask missing {rule}")
+    if "Agent(fork)" not in p["deny"]:
+        fail(f"{label}: permissions.deny missing Agent(fork)")
+    if d.get("worktree") != {"bgIsolation": "none"}:
+        fail(f'{label}: worktree.bgIsolation must be "none", got {d.get("worktree")!r}')
+    if d.get("env", {}).get("CLAUDE_CODE_SUBAGENT_MODEL") != "sonnet":
+        fail(f'{label}: env.CLAUDE_CODE_SUBAGENT_MODEL must be "sonnet"')
+    entries = [e for e in d.get("hooks", {}).get("PreToolUse", []) if e.get("matcher") == "Agent|Task"]
+    cmds = [h.get("command") for e in entries for h in e.get("hooks", [])]
+    if len(entries) != 1 or cmds != [AGENT_HOOK]:
+        fail(f"{label}: expected exactly one PreToolUse entry (matcher Agent|Task) running agent-guard.sh, got {cmds}")
 
 if failures:
     for f in failures:

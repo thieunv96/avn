@@ -48,6 +48,10 @@ cmp -s "$ROOT/src/hooks/bash-guard.sh" "$T1/.claude/hooks/bash-guard.sh" && ok |
 cmp -s "$ROOT/src/settings.json"       "$T1/.claude/settings.json"       && ok || fail "t1 settings mapping mismatch"
 cmp -s "$ROOT/src/CLAUDE.md"           "$T1/CLAUDE.md"                   && ok || fail "t1 CLAUDE.md mapping mismatch"
 cmp -s "$ROOT/src/skills/verify/SKILL.md" "$T1/.claude/skills/verify/SKILL.md" && ok || fail "t1 skills mapping mismatch"
+cmp -s "$ROOT/src/hooks/agent-guard.sh" "$T1/.claude/hooks/agent-guard.sh" && ok || fail "t1 hook mapping mismatch (agent-guard)"
+for h in bash-guard file-guard agent-guard verify-gate; do
+  [ -x "$T1/.claude/hooks/$h.sh" ] && ok || fail "t1 hook not executable: $h.sh"
+done
 
 # ---- 2. re-run: stamp unchanged, no .bak for the stamp ----
 OUT="$(bash "$INSTALL" -y --no-color "$T1" 2>&1)" || fail "t1 re-install exited non-zero"
