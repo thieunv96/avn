@@ -43,6 +43,8 @@ grep -qx "source=local"  "$T1/$STAMP_REL" && ok || fail "t1 stamp source != loca
 assert_contains "t1 summary" "$OUT" "baseline $VER"
 grep -qxF 'CLAUDE.md.bak'      "$T1/.gitignore" && ok || fail "t1 gitignore missing CLAUDE.md.bak"
 grep -qxF '.claude/**/*.bak'   "$T1/.gitignore" && ok || fail "t1 gitignore missing .claude/**/*.bak"
+grep -qxF '/CLAUDE.md'         "$T1/.gitignore" && ok || fail "t1 gitignore missing /CLAUDE.md"
+grep -qxF '/.claude/'          "$T1/.gitignore" && ok || fail "t1 gitignore missing /.claude/"
 # src/ → .claude/ mapping sanity: installed copies are byte-identical to the sources
 cmp -s "$ROOT/src/hooks/bash-guard.sh" "$T1/.claude/hooks/bash-guard.sh" && ok || fail "t1 hook mapping mismatch (bash-guard)"
 cmp -s "$ROOT/src/settings.json"       "$T1/.claude/settings.json"       && ok || fail "t1 settings mapping mismatch"
@@ -58,6 +60,8 @@ OUT="$(bash "$INSTALL" -y --no-color "$T1" 2>&1)" || fail "t1 re-install exited 
 assert_contains "t1 rerun header" "$OUT" "$VER (unchanged)"
 assert_contains "t1 rerun stamp" "$OUT" "unchanged .claude/avn-version"
 [ ! -f "$T1/$STAMP_REL.bak" ] && ok || fail "t1 rerun created a stamp .bak"
+[ "$(grep -cxF '/CLAUDE.md' "$T1/.gitignore")" -eq 1 ] && ok || fail "t1 rerun duplicated /CLAUDE.md in .gitignore"
+[ "$(grep -cxF '/.claude/'  "$T1/.gitignore")" -eq 1 ] && ok || fail "t1 rerun duplicated /.claude/ in .gitignore"
 
 # ---- 3. older stamp: header and stamp line show old → new ----
 printf 'version=0.0.1\nsource=local\n' > "$T1/$STAMP_REL"
@@ -158,6 +162,11 @@ OUT="$(bash "$INSTALL" --uninstall -y --no-color "$T6" 2>&1)" || fail "t6 uninst
 assert_contains "t6 summary" "$OUT" "uninstalled"
 [ ! -e "$T6/CLAUDE.md" ] && ok || fail "t6 CLAUDE.md not removed"
 [ ! -d "$T6/.claude" ] && ok || fail "t6 .claude dir not pruned"
+if grep -qxF '/CLAUDE.md' "$T6/.gitignore" || grep -qxF '/.claude/' "$T6/.gitignore"; then
+  fail "t6 gitignore still ignores the installed copy after uninstall"
+else
+  ok
+fi
 
 # ---- 14. uninstall guard rails: headless needs -y, dry-run changes nothing, avn wraps it ----
 T7="$TMP/t7"; mkdir -p "$T7"
@@ -242,6 +251,22 @@ OUT="$(AVN_LOCAL_SRC="$ROOT" bash "$AVN" check "$T11" 2>&1)"; RC=$?
 assert_contains "t11 check shows profile" "$OUT" "installed $VER (strict)"
 OUT="$(cd "$T11" && bash "$AVN" version 2>&1)" || fail "t11 avn version exited non-zero"
 assert_contains "t11 version shows profile" "$OUT" "$VER (strict)"
+
+# ---- 21. gitignore: a pre-existing /CLAUDE.md line is not duplicated; git sees no installed file ----
+T12="$TMP/t12"; mkdir -p "$T12"
+printf '/CLAUDE.md\n' > "$T12/.gitignore"
+OUT="$(bash "$INSTALL" -y --no-color "$T12" 2>&1)" || fail "t12 install exited non-zero"
+assert_not_contains "t12 no duplicate append" "$OUT" "+= /CLAUDE.md"
+assert_contains "t12 appends /.claude/" "$OUT" "+= /.claude/"
+[ "$(grep -cxF '/CLAUDE.md' "$T12/.gitignore")" -eq 1 ] && ok || fail "t12 /CLAUDE.md duplicated in .gitignore"
+if command -v git >/dev/null 2>&1; then
+  STATUS="$(cd "$T12" && git init -q && git status --porcelain --untracked-files=all 2>/dev/null)"
+  if printf '%s\n' "$STATUS" | grep -qE '^\?\? (CLAUDE\.md|\.claude/)'; then
+    fail "t12 installed copy shows up as untracked in git"
+  else
+    ok
+  fi
+fi
 
 printf 'install-version-test: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

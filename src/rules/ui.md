@@ -4,114 +4,84 @@ paths:
   - "**/components/**"
 ---
 
-# UI rules — security-ops products for the Japanese market
+# UI rules: design and test checklist
 
-These complement `CLAUDE.md` (§3 inspect/reuse, §10 verification) with UI-specific standards.
-Target users: security guards and shift leaders operating under time pressure, often on 1080p
-monitors in dim control rooms. The interface must be usable by a stressed, non-technical
-operator on their first shift.
+Target users: operators under time pressure, often on 1080p monitors in dim rooms. Every screen
+has to work for a stressed, non-technical user on their first shift. These rules complement
+`CLAUDE.md` §3 (reuse) and §10 (verification).
 
-## 1. Inventory before creating anything new
+## 1. Reuse before creating
 
-Before writing a new component, style, or token (per CLAUDE.md §3, with UI specifics):
+- List the existing components and design tokens (colors, spacing, typography) relevant to the
+  screen (component directory, theme/token files, 1–2 similar screens) and reuse or extend one.
+  Create something new only when nothing fits, and say why each candidate was rejected.
+- New values (colors, spacing, font sizes) come from existing tokens, never literals.
+- If the screen goal or primary action is unclear, ask before implementing (CLAUDE.md §1). For
+  minor ambiguities, proceed and state the assumption inline.
 
-- List existing components and design tokens (colors, spacing, typography) relevant to this
-  screen — check the component directory, theme/token files, and 1–2 similar existing screens.
-- Reuse or extend one of them. Create new only if none fits, and state why each candidate was
-  rejected. Do not invent a new visual style unless explicitly asked.
-- New values (colors, spacing, font sizes) must come from existing tokens, never hardcoded
-  literals.
-- If a request is vague on the **screen goal or primary action**, ask before implementing
-  (CLAUDE.md §1). For minor ambiguities, proceed and state your assumption inline — do not
-  stall on small details.
+## 2. Design requirements
 
-## 2. Operators under load (core priorities)
+Apply every item when designing a screen; verify every item when testing it (§4).
 
-- One obvious primary action per screen. Secondary actions are visually subordinate
-  (ghost/text buttons).
-- Measurable readability, not vibes:
-  - Body text ≥ 14px (16px preferred for operator-facing screens).
-  - Contrast ≥ WCAG AA: 4.5:1 for text, 3:1 for large text and UI icons.
-  - Critical status (alarms, incidents) readable at a glance from ~1m.
-- Simple layout, shallow hierarchy: max 2 levels of visual nesting per panel.
-- Progressive disclosure: show core info by default; advanced settings go behind an
-  expander/secondary view, never crowd the main screen.
+### Visual and design conformance
 
-## 3. System status & feedback (Nielsen #1)
+- Layout & alignment: position, spacing (margin/padding), and sizes follow the design spec
+  (Figma) when one exists, otherwise the existing screens; grid and block alignment hold. Keep
+  the hierarchy shallow: at most 2 levels of visual nesting per panel.
+- Colors & imagery: colors come from the brand palette/tokens; images and icons are crisp, not
+  distorted, and at the right ratio.
+- Typography: font family, size, weight, and line height come from the type scale. Body text
+  ≥ 14px (16px preferred); critical status (alarms, incidents) readable at a glance from ~1 m.
+- Component states: default, hover/active/focus, disabled, loading, empty, and error each render
+  correctly. Every data view ships real loading/empty/error states; an empty state says what the
+  screen is for and what to do next; a disabled control shows why (tooltip/help text).
+- Responsive: no text overflow or broken layout at HD (1366×768) and FHD (1920×1080).
 
-- Every action gets immediate visible feedback: button pending state, toast, or inline
-  status — within 100ms perceived.
-- Long operations (>1s) show progress; >10s show cancel.
-- Implement real **empty, loading, and error states** for every data view — not just the
-  happy path. Empty states say what the screen is for and what to do next.
+### UX and usability
 
-## 4. Error prevention & recovery (Nielsen #3, #5, #9)
+- Usability: the user reaches the screen's goal quickly. One obvious primary action per screen;
+  secondary actions are visually subordinate (ghost/text buttons); advanced settings sit behind
+  an expander or secondary view.
+- User flow: no redundant, confusing, or broken steps; frequent flows within 2 clicks of the main
+  screen; keyboard shortcuts for repeat actions, documented in a `?` overlay.
+- Visual hierarchy: the most important information is seen first; the primary CTA stands out and
+  leads to the next step.
+- Feedback: every action gets visible feedback within ~100 ms (pending state, toast, inline
+  status, navigation). Operations over 1 s show progress; over 10 s offer cancel.
+- Consistency: one palette, one type scale, one icon set, all from tokens; the same control does
+  the same thing everywhere (✕ always closes, never deletes); one term per concept across the
+  product, using the domain's vocabulary rather than developer terms.
+- Accessibility (WCAG 2.1 AA): contrast ≥ 4.5:1 for text and 3:1 for large text and icons; full
+  keyboard operability with visible focus states (no `outline: none` without a replacement); hit
+  targets ≥ 44×44 px on touch-capable screens; semantic HTML/ARIA with `role="alert"` or live
+  regions for status; never color alone, always paired with icon and label.
+- Cognitive load: plain wording the user already knows, so they never have to guess what to do
+  next. Prefer pick-lists, recent items, and autocomplete over free text; prefill sensible,
+  editable defaults (today, current shift, current user); keep the object's ID and title on
+  screen throughout a flow.
+- Error prevention & recovery: destructive or irreversible actions confirm by naming the object
+  (or offer undo); error messages say what happened and what to do next in plain language, with
+  no stack traces or bare error codes.
 
-- Destructive or irreversible actions (close incident, delete record, end shift handover)
-  require confirmation that names the object (e.g. 「インシデント #1042 をクローズしますか？」),
-  or provide undo.
-- Never rely on color alone to signal state — pair with icon and label.
-- Error messages: plain Japanese, state what happened + what to do next. No stack traces,
-  no error codes alone, no blame ("入力が不正です" → say which field and what format is
-  expected).
-- Disable-and-explain over silent failure: if an action is unavailable, show why
-  (tooltip/help text), don't just gray it out.
+## 3. Text and locale
 
-## 5. Recognition over recall (Nielsen #6)
+- UI text comes from the project's i18n/locale setup, in the product's language; no hardcoded
+  strings in another language.
+- Numbers, dates, and times go through the project's locale formatting.
+- Long text is handled explicitly: test every label and cell with a realistic long string and
+  define truncation (with tooltip) or wrapping, so nothing clips silently.
+- Sample data is realistic and in the product's language; never lorem ipsum.
 
-- Prefer pick-lists, recent items, and autocomplete over free-text entry.
-- Smart defaults: prefill today's date, current shift, current user, the most common option.
-  Every prefill must remain editable.
-- Keep context visible: when acting on an incident/report, its ID and title stay on screen
-  throughout the flow.
+## 4. Verifying UI changes
 
-## 6. Flexibility & efficiency (Nielsen #7)
+The mechanics (browser automation, e2e scoping, the fallback when no browser can run) are in
+`CLAUDE.md` §10 and `.claude/rules/testing.md`. On top of that:
 
-- Mouse/touch path for novices; keyboard shortcuts for repeat actions used by shift leaders
-  (document them in a `?` shortcut overlay).
-- Frequent flows reachable in ≤ 2 clicks from the main screen.
-
-## 7. Consistency (Nielsen #4)
-
-- Visual: one palette, one type scale, one icon set — all from tokens.
-- Behavioral: the same control does the same thing everywhere (e.g. "✕" always closes,
-  never deletes).
-- Terminology: one term per concept across the whole product. Decide JA-first wording once
-  (e.g. ログイン, not サインイン elsewhere) and keep a glossary. Use the domain's real
-  vocabulary — 警備員, 巡回, 発報, 引継ぎ — not developer terms (Nielsen #2).
-
-## 8. Japanese text & locale rules
-
-- Font stack: `"Noto Sans JP", "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif`
-  (or the project's existing JA token). Never a Latin-only stack.
-- Japanese body text: `line-height ≥ 1.7`. Headings ≥ 1.4.
-- Do **not** use italic for Japanese. Emphasize with weight, size, or color.
-- CJK wrapping: set `overflow-wrap: anywhere` (or `line-break: strict`) where long JA
-  strings appear; verify no mid-word overflow of half-width runs (IDs, URLs).
-- Numbers and IDs: half-width (半角). Dates: `YYYY/MM/DD`, time: 24h `HH:mm`. If 和暦 is
-  required, show it alongside, never instead.
-- Long-text handling is mandatory: test every label/cell with a realistic long Japanese
-  string (e.g. a 40+ char facility name), define truncation with tooltip or wrapping —
-  never let it clip silently.
-- Never use lorem ipsum; use realistic Japanese sample data.
-
-## 9. Accessibility (JIS X 8341-3 / WCAG 2.1 AA)
-
-- Full keyboard operability; visible focus states on all interactive elements
-  (no `outline: none` without replacement).
-- Hit targets ≥ 44×44px for touch-capable screens.
-- Semantic HTML / ARIA roles for status regions (alarms use `role="alert"` / live regions).
-
-## 10. Verifying UI changes
-
-The mechanics — real browser automation (Playwright/Puppeteer/Cypress), e2e scoping, and the
-fallback when the environment cannot run a browser — are defined in CLAUDE.md §10 and
-`.claude/rules/testing.md`. UI-specific requirements on top:
-
-- Layout, visual, or state changes: verify in a real browser, not inspection alone.
-  Copy-only changes don't need a new browser run (the full test suite per CLAUDE.md §10
-  still runs).
-- When given a design: screenshot the result, compare against the design, list the
-  differences, fix them, re-screenshot.
-- Verify the screens the change touches at 1920×1080 and 1366×768, with realistic long JA
-  data loaded, and with each of empty/loading/error states triggered at least once.
+- Layout, visual, or state changes are verified in a real browser, not by inspection alone.
+  Copy-only changes need no new browser run (the full suite still runs).
+- With a design: screenshot the result, compare against the design, list the differences, fix
+  them, re-screenshot.
+- Walk both groups of §2 for every screen the change touches, at both resolutions, with realistic
+  long data loaded and each of loading/empty/error triggered at least once.
+- Report both groups under `## Verified`: item by item for anything that failed or was fixed, and
+  "n/a" with the reason for items that do not apply (e.g. no design spec).
