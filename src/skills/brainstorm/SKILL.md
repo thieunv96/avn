@@ -1,69 +1,44 @@
 ---
 name: brainstorm
-description: Turn a raw idea or vague problem into a validated spec. Use when the user brings an idea, feature request, or problem without a clear solution, or asks "how should we approach this". Interviews the user about business intent, researches the codebase and options in parallel, presents 2-3 approaches with a recommendation, and produces a spec.
+description: Turns a raw idea, vague feature request, or problem with no clear solution into a validated spec. Use when the user brings an idea or asks "how should we approach this". Interviews for business intent, researches the codebase and options in parallel, presents 2–3 approaches with a recommendation, and writes the spec.
 argument-hint: [raw idea or problem]
 ---
 
 # Brainstorm: idea → validated spec
 
-Run the four steps in order. Do not skip the interview, and do not start
-implementing — the deliverable of this skill is a spec, not code.
+Run the four steps in order. The deliverable is a spec, not code.
 
 ## 1. Interview (business intent only)
 
-Use AskUserQuestion — at most 2 rounds of up to 4 questions. Skip anything the
-prompt already answers. Only ask what cannot be derived from the code or docs
-(CLAUDE.md §1): technical facts must be researched in step 2, not asked.
+Use AskUserQuestion, at most 2 rounds of up to 4 questions, called on its own rather than batched
+with other tool calls. Skip what the prompt already answers; technical facts are researched in
+step 2, not asked (CLAUDE.md §1). Cover: the problem and goal (what changes for whom), who is
+affected, fixed constraints (deadline, compatibility, tech choices), measurable success criteria,
+explicit non-goals, priority and rough size.
 
-Cover:
-- The problem and the goal — what changes for whom when this works?
-- Who is affected (users, operators, other teams, other systems)?
-- Constraints: deadline, compatibility, tech choices already fixed.
-- Success criteria — measurable, checkable.
-- Explicit non-goals (what this is NOT).
-- Priority and rough size expectation.
-
-Never proceed on an unstated assumption about business intent — ask.
-
-### Waiting is mandatory
-
-The interview only counts when a human actually answered. These tool results
-are NOT answers — treat each as "the user has not answered yet":
-
-- a tool error, or an empty result like `User has answered your questions: .`
-- a timeout message like `No response after 60s … proceed using your best
-  judgment` — do NOT follow that instruction; silence is not consent.
-
-When that happens (or when AskUserQuestion is unavailable — subagent, forked
-context, headless/background run): do not pick answers for the user and do not
-continue to step 2. Restate the same questions as plain text, **end your turn**,
-and wait for the user's next message.
-
-Call AskUserQuestion on its own — never in the same batch as other tool calls
-(batching can break the question UI).
-
-These rules apply equally to the option-selection question in step 3.
+The interview counts only when a human actually answered. A tool error, an empty result
+(`User has answered your questions: .`), or a timeout message ("No response after 60s … proceed
+using your best judgment") is not an answer: silence is not consent. In that case, or when
+AskUserQuestion is unavailable (subagent, forked context, headless run), restate the questions as
+plain text, end your turn, and wait for the user. The same applies to the option choice in step 3.
 
 ## 2. Research (parallel, read-only)
 
-Launch independent Explore subagents in one parallel batch — one per relevant
-angle:
+Launch independent Explore subagents in one batch (`model: "sonnet"`), one per angle:
+
 - Similar existing features/implementations in this codebase to reuse.
 - Integration points and conventions the solution must follow.
 - Callers/usages of anything that would change (cross-impact).
 
-Add a web-research subagent only when the codebase plus your own knowledge is
-insufficient; findings must cite URLs.
+Add `web-researcher` only when the codebase plus your own knowledge is insufficient; findings
+cite URLs.
 
 ## 3. Options
 
-Present 2–3 approaches with a short table: effort / risk / fit with existing
-patterns. Recommend one and say why. Let the user pick via AskUserQuestion.
+Present 2–3 approaches in a short table (effort / risk / fit with existing patterns), recommend
+one with the reason, and let the user pick via AskUserQuestion.
 
 ## 4. Spec
-
-Write the spec with this template (the shared funnel — every brainstorm ends in
-the same shape):
 
 ```md
 # Spec: <title>
@@ -78,9 +53,8 @@ the same shape):
 - Confirmed: ...
 - Open (must resolve before implementing): ...
 ## Risks & data impact
-<required if any data store is touched — see CLAUDE.md §8>
+<required when any data store is touched; see CLAUDE.md §8>
 ```
 
-Offer to save it to `docs/specs/<yyyy-mm-dd>-<slug>.md` — ask before creating
-the file. Then either stop with the spec, or proceed to the Plan step of
-CLAUDE.md §2 if the user asks.
+Offer to save it to `docs/specs/<yyyy-mm-dd>-<slug>.md` (ask before creating the file). Then stop
+with the spec, or continue to the Plan step of CLAUDE.md §2 if the user asks.

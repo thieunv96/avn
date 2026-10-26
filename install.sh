@@ -26,8 +26,10 @@
 #
 # Versioning: the baseline's version lives in the VERSION file next to this
 # script. Each install writes a stamp to TARGET_DIR/.claude/avn-version
-# (version + source; meant to be committed) and the header/summary show the
-# old → new version. AVN_REF accepts a branch or a tag (e.g. v2.1.0).
+# (version + source + profile) and the header/summary show the old → new
+# version. The installed copy (/CLAUDE.md, /.claude/) is gitignored in the
+# target (since v2.11.0), so every developer runs the installer in their own
+# checkout. AVN_REF accepts a branch or a tag (e.g. v2.1.0).
 #
 # Two ways to run:
 #   • From a clone:   ./install.sh [TARGET_DIR]
@@ -51,6 +53,13 @@ AVN_REF="${AVN_REF:-master}"
 DL_DIR=""
 
 N_CREATE=0; N_UPDATE=0; N_UNCHANGED=0; N_BACKUP=0; N_REMOVE=0
+
+# .gitignore lines the installer appends (and uninstall takes back). The first
+# two keep the whole installed copy out of the target repo's history (anchored
+# to the root so a nested CLAUDE.md in a sub-package stays committable); the
+# rest cover per-developer files and the .bak backups install_file creates.
+# Older lines stay in the list so uninstall can clean up earlier releases.
+GI_LINES=("/CLAUDE.md" "/.claude/" "CLAUDE.local.md" ".claude/settings.local.json" "CLAUDE.md.bak" ".claude/**/*.bak")
 
 usage() {
   cat <<'EOF'
@@ -98,8 +107,9 @@ file-guard.sh, agent-guard.sh and verify-gate.sh (executable),
 .claude/verify-commands.example,
 and .claude/settings.json (the strict or relaxed profile variant, shipped
 as-is; hook paths use ${CLAUDE_PROJECT_DIR}). Also writes the baseline version
-and guard profile to .claude/avn-version (commit this stamp so the whole team
-can see which baseline the repo runs).
+and guard profile to .claude/avn-version, and gitignores the installed copy
+(/CLAUDE.md, /.claude/) plus the local files, so each developer runs the
+installer in their own checkout and "avn check" reports when it is outdated.
 
 When TARGET_DIR is itself a baseline source repo (it has src/ + install.sh),
 the install refreshes that repo's own installed copy — its running guard —
@@ -531,7 +541,7 @@ if [ "$UNINSTALL" -eq 1 ]; then
   # gitignore — take back exactly the lines the installer appends
   GI="$TARGET_ABS/.gitignore"
   if [ -f "$GI" ]; then
-    for ln in "CLAUDE.local.md" ".claude/settings.local.json" "CLAUDE.md.bak" ".claude/**/*.bak"; do
+    for ln in "${GI_LINES[@]}"; do
       if grep -qxF "$ln" "$GI"; then
         line "$CYN" "✎" "gitignore" "-= $ln"
         if [ "$DRY_RUN" -eq 0 ]; then
@@ -644,11 +654,10 @@ else
   [ "$DRY_RUN" -eq 1 ] || { mkdir -p "$TARGET_ABS/.claude"; printf '%s\n' "$STAMP_CONTENT" > "$STAMP"; }
 fi
 
-# .gitignore — append Claude lines when missing (creates the file if absent).
-# The .bak patterns cover exactly the backups install_file creates (CLAUDE.md
-# at the root, everything else under .claude/) so they never get committed.
+# .gitignore — append the GI_LINES entries that are missing (creates the file
+# if absent). Exact-line matching keeps re-runs idempotent.
 GI="$TARGET_ABS/.gitignore"
-for ln in "CLAUDE.local.md" ".claude/settings.local.json" "CLAUDE.md.bak" ".claude/**/*.bak"; do
+for ln in "${GI_LINES[@]}"; do
   if [ ! -f "$GI" ] || ! grep -qxF "$ln" "$GI"; then
     line "$CYN" "✎" "gitignore" "+= $ln"
     [ "$DRY_RUN" -eq 1 ] || printf '%s\n' "$ln" >> "$GI"

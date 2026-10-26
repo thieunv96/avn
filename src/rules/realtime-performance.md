@@ -11,8 +11,10 @@ paths:
 Hot paths include: video decode, audio processing, inference loops, tracking, streaming/GStreamer
 pipelines, camera reconnect logic, audio/video sync, frame buffering, and GPU/CPU scheduling.
 
-- **Do not "optimize" or refactor these areas without measurement.**
-- For any performance change, follow: (1) identify the metric, (2) measure current behavior, (3) make the smallest change, (4) measure again, (5) report before/after numbers.
+- Do not optimize or refactor these areas without measurement; a plausible-looking change can
+  cost frames or latency that only a benchmark reveals.
+- For any performance change: (1) identify the metric, (2) measure current behavior, (3) make the
+  smallest change, (4) measure again, (5) report before/after numbers.
 
 Useful metrics: latency, FPS, CPU/GPU usage, memory, dropped frames, queue size, reconnect time,
 throughput.

@@ -42,8 +42,10 @@ curl -fsSL https://raw.githubusercontent.com/thieunv96/avn/master/install.sh | b
 The script downloads the baseline from GitHub and copies the pieces above into the target repo.
 `settings.json` ships as-is — its hook commands already use `${CLAUDE_PROJECT_DIR}`, so the
 baseline is self-contained per repo (and protects this repo itself, too). It is safe to re-run
-(idempotent) and adds `CLAUDE.local.md` / `.claude/settings.local.json` to `.gitignore`
-(creating the file if needed).
+(idempotent). Since v2.11.0 it also gitignores the installed copy (`/CLAUDE.md`, `/.claude/`)
+plus `CLAUDE.local.md` / `.claude/settings.local.json` (creating the file if needed), so the
+baseline never lands in the target repo's history and each developer runs the installer in their
+own checkout.
 
 When a file would be overwritten, you get an arrow-key menu asking whether to back it up first
 (default: **Yes** → `<file>.bak`). Control it non-interactively with flags:
@@ -143,9 +145,10 @@ Shift+Tab or `--permission-mode`; the project setting only picks the starting mo
 ## Versioning & the `avn` CLI
 
 The baseline is versioned with SemVer: the `VERSION` file is the single source of truth, and every
-install writes a stamp to `.claude/avn-version` in the target repo (version + source). **Commit the
-stamp** — the whole team then sees which baseline the repo runs, and upgrades show up in git
-history. The installer header and summary show the version change (`2.0.0 → 2.1.0`).
+install writes a stamp to `.claude/avn-version` in the target repo (version + source + profile).
+The installed copy, stamp included, is gitignored since v2.11.0: each developer runs `avn install`
+in their own checkout, and `avn check` tells them when it is outdated. The installer header and
+summary show the version change (`2.0.0 → 2.1.0`).
 
 `bin/avn` is a pip-style manager around the installer. Install it once (normal terminal):
 
@@ -185,13 +188,16 @@ checklist:
    bash tests/file-guard-test.sh && bash tests/agent-guard-test.sh &&
    bash tests/settings-profile-test.sh` — plus
    `shellcheck install.sh bin/avn src/hooks/*.sh` if shellcheck is installed.
-3. QA the relax menu once by hand in a scratch repo: `./install.sh --profile relaxed <dir>` —
+3. When `src/` markdown changed (CLAUDE.md, rules, skills, agents): open Claude Code in this repo
+   and run `/doctor prompt-audit` (Claude Code ≥ 2.1.283) — it flags instructions written for
+   older models, dead references, and contradictions across those files.
+4. QA the relax menu once by hand in a scratch repo: `./install.sh --profile relaxed <dir>` —
    confirm the "No" default aborts and the "Yes" path installs the relaxed settings + stamp.
-4. Optionally refresh this repo's own installed copy to dogfood the release: `./install.sh .`
+5. Optionally refresh this repo's own installed copy to dogfood the release: `./install.sh .`
    (interactive — the self-target gate asks for confirmation). The copy is untracked since v2.8.0,
    so there is nothing to commit; `./install.sh --dry-run .` afterwards must report no pending
    changes (no drift between `src/` and the root copy).
-5. Commit, then tag and push: `git tag v<version> && git push origin master --tags`.
+6. Commit, then tag and push: `git tag v<version> && git push origin master --tags`.
 
 ## Day-to-day usage
 

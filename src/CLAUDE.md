@@ -1,288 +1,199 @@
 # CLAUDE.md
 
-This file defines how Claude Code should work in this repository. It covers **judgment** —
-how to approach work, with quality at the center.
-
-- Hard enforcement lives in `.claude/hooks/` and `.claude/settings.json` (these block dangerous
-  actions deterministically). Do not restate or try to work around them.
-- File-type-specific and situational guidance lives in `.claude/rules/` and loads on demand
-  (UI, realtime/performance, testing, migrations, deploy).
-
-This is a shared quality baseline for ThieuNV's projects. Keep instructions concrete and verifiable,
-and refine this file like any frequently used prompt.
-
----
+How Claude Code works in this repository: the judgment layer of ThieuNV's shared quality
+baseline. Hard enforcement lives in `.claude/hooks/` and `.claude/settings.json`, which block
+dangerous actions deterministically; do not restate or work around them. File-type guidance
+lives in `.claude/rules/` and loads on demand. Keep every instruction concrete and verifiable.
 
 ## 1. Communication and language
 
-- Match the user's language in conversation: Vietnamese, Japanese, or English.
-- Keep code, identifiers, branch names, commit messages, and technical constants in English unless the project already does otherwise.
-- When there are multiple reasonable options, present them and recommend one.
-- **When something is unclear, gather context before asking.** First read the relevant code and
-  research the docs/web. Only ask the user when it is still unclear after that — typically for
-  business intent, priorities, or trade-offs you cannot derive. **Do not guess, and do not ask
-  what you can find out yourself.**
-
----
+- Reply in Vietnamese by default, in English when the user writes in English. Code, identifiers,
+  branch names, commit messages, and technical constants stay in English.
+- When several options are reasonable, present them and recommend one.
+- Gather context before asking: read the relevant code and docs first, then ask only what cannot
+  be derived from them (business intent, priorities, trade-offs). Do not guess.
 
 ## 2. Development workflow
 
 Default flow for non-trivial work: **Explore → Clarify → Plan → Implement → Verify → Review.**
-For a small obvious fix (the diff fits in one sentence — typo, log line, rename), skip straight to
-Implement, then Verify and report.
+For a small obvious fix (typo, log line, rename), go straight to Implement, then Verify and report.
+Non-trivial means: multi-file, public API, database, auth/permission, CI/CD, production/customer
+systems, performance-critical code, or unclear business logic.
 
-### Explore / brainstorm first
+### Explore
 
-- Read the relevant existing code before writing any. Reuse existing patterns (see §3).
-- **Always use a sub-agent for web research and for exploring a large or unfamiliar codebase.** It works in its own context and returns only the findings, keeping the main context focused. Reading a few known files directly is fine; broad searching and web research are not.
-- The baseline ships task-scoped subagents for exactly this, all pinned to Sonnet (cheap and fast for heavy delegated work): `web-researcher` (web/docs research), `codebase-explorer` (read-only source exploration with `file:line`), `docs-writer` (documentation grounded in the code). Prefer them for research, exploration and doc-writing.
-- **Subagent model policy (enforced by `agent-guard.sh`):** every subagent except the built-in `Plan` runs on Sonnet or Opus — `Explore`, `general-purpose`, `claude-code-guide` and custom agents alike, in every permission mode, plan mode included. Pass `model: "sonnet"` (research, exploration, search, docs) or `model: "opus"` (review, complex reasoning) explicitly; the baseline agents are pinned to Sonnet and `CLAUDE_CODE_SUBAGENT_MODEL=sonnet` covers `general-purpose`, but the built-in `Explore` ignores that default and is blocked without an explicit `model`. Only `Plan` may inherit the main model. Forks (`subagent_type: "fork"`) are denied — spawn a fresh subagent with a self-contained prompt instead.
-- Launch independent sub-agents in parallel when their searches do not depend on each other.
-- For a raw idea or a problem with no known solution yet, run the `/brainstorm` skill: it interviews the user, researches options in parallel, and produces a spec.
+- Read the relevant existing code before writing any, and reuse its patterns (§3).
+- Delegate only large, independent work (web research, broad exploration of an unfamiliar
+  codebase) so the main context stays focused; do yourself what fits in a handful of tool calls.
+  The baseline ships Sonnet-pinned subagents for this: `web-researcher`, `codebase-explorer`
+  (read-only, `file:line` answers), `docs-writer`. Launch independent subagents in parallel.
+- Subagent model policy (enforced by `agent-guard.sh`): every subagent except the built-in
+  `Plan` runs on Sonnet or Opus, in every permission mode. Pass `model: "sonnet"` (research,
+  exploration, docs) or `model: "opus"` (review, complex reasoning) explicitly; the built-in
+  `Explore` ignores the env default. Forks are denied; spawn a fresh subagent instead.
+- For a raw idea with no known solution, run `/brainstorm`.
 
-### Clarify the spec (spec-driven)
+### Clarify (spec-driven)
 
-Before coding anything non-trivial, pin down the spec and write it down:
-
-- **Acceptance criteria** as concrete expected-vs-actual examples (e.g. "Expected: returns 200 with user data. Actual today: returns 401").
-- The **files/interfaces** involved.
-- What is explicitly **out of scope**.
-- The **end-to-end check** that will prove it works.
-
-If business logic or requirements are unclear after exploring, ask the user (§1).
+Before coding anything non-trivial, write down: acceptance criteria as expected-vs-actual
+examples, the files/interfaces involved, what is out of scope, and the end-to-end check that
+proves it works. If business intent is still unclear after exploring, ask (§1).
 
 ### Plan
 
-State a short plan before large changes:
+State a short plan before large changes, with these headings: `## Plan`, `## Assumptions`,
+`## Not requested — needs your OK`, `## Need confirmation`.
 
-```md
-## Plan
-1. ...
-## Assumptions
-- ...
-## Not requested — needs your OK
-- ...
-## Need confirmation
-- ...
-```
+Nothing the user did not ask for enters the plan without their OK: anything inferred beyond the
+literal request (an extra fix, a refactor, a dependency, a wider scope, a test outside the
+change's blast radius) goes under `## Not requested — needs your OK` and is confirmed with
+AskUserQuestion first. Declined or unanswered items are mentioned in the final notes (§4), not
+implemented. Assumptions about business intent are confirmed the same way.
 
-Non-trivial work includes multi-file changes, public API changes, database changes,
-auth/permission changes, CI/CD changes, production/customer-system changes, performance-critical
-code, or unclear business logic.
+### Implement, verify, review
 
-Assumptions about business intent must be confirmed with the user (AskUserQuestion) before
-implementing — never proceed on a guess about what the user meant.
-
-**Nothing the user did not ask for enters the plan without their OK.** Anything inferred or added
-beyond the literal request — an extra fix, a refactor, a dependency, a "while I'm here" cleanup, a
-wider scope, a test outside the change's blast radius — goes under `## Not requested — needs your OK`
-and is confirmed with AskUserQuestion before implementation starts. Declined or unanswered items are
-not implemented; mention them in the final notes only (§4).
-
-### Implement (test-driven, pragmatically)
-
-- **Business logic and bug fixes: TDD.** Write tests from the acceptance criteria first, confirm
-  they fail, then implement until they pass. Do not overfit to the tests.
-- **ML, realtime, and exploratory work: pragmatic.** Strict unit-first TDD often does not fit;
-  verify with metrics, fixtures, or integration tests instead (see `.claude/rules/`).
-- **YOU MUST NOT delete, skip, or weaken tests to make a suite pass.** Fix the code, or raise the
-  problem — never silence the test.
-
-### Verify
-
-Give yourself a check you can run and run it (see §10). **Show evidence over assertion**: report
-the command and its output, not "it works".
-
-### Review
-
-- Review your own diff before reporting (`git diff`).
-- For non-trivial changes, run an independent review in a fresh context — the `/code-review`
-  skill, or a reviewer subagent — so the agent doing the work is not the only one grading it.
-
----
+- Business logic and bug fixes: TDD. Write tests from the acceptance criteria, confirm they fail,
+  implement until they pass, without overfitting to the tests. ML, realtime, and exploratory
+  work: verify with metrics, fixtures, or integration tests instead (`.claude/rules/`).
+- Never delete, skip, or weaken a test to make a suite pass; fix the code or raise the problem.
+- Run a check you can actually run (§10) and report the command and its output, not "it works".
+- Review your own diff (`git diff`) before reporting. For non-trivial changes, get an
+  independent review in a fresh context (`/code-review`) so the author is not the only grader.
 
 ## 3. Inspect before editing
 
-Before editing, inspect the relevant existing code and reuse what is there:
+Reuse what already exists (similar implementations, naming, error handling, test style, API
+response format, UI/component and config patterns) instead of implementing from memory.
 
-- Similar implementations, naming conventions, error handling.
-- Existing test style, API response format, UI/component patterns, config/env patterns.
-- **Shared code:** before editing anything used from more than one place, find every caller/usage (grep the symbol, check exports/imports) and account for each in the plan.
-- **Pattern sweep:** when you change a convention, pattern, or signature, search for all similar occurrences and update them too — or list the ones you left and why (mirrors the §10 bug-fix sweep).
-
-Do not implement from memory when the repository already has an example.
-
----
+- Shared code: before editing anything used from more than one place, find every caller (grep
+  the symbol, check exports/imports) and account for each in the plan.
+- Pattern sweep: when you change a convention, signature, or pattern, update every similar
+  occurrence too, or list the ones you left and why.
 
 ## 4. Scope and simplicity
 
-- Make the smallest safe change that solves the task. Every changed line should trace back to the request.
-- Do not add features, abstractions, configurability, dependencies, or refactors that were not requested — if you believe one is needed, list it under `## Not requested — needs your OK` (§2) and ask instead of adding it.
-- Do not clean up adjacent code, reformat unrelated files, rename files unless required, or delete unrelated dead code. Match the existing project style even if you would do it differently.
-- If you notice unrelated problems, mention them in the final notes instead of fixing them silently.
-- If the change becomes larger than expected, stop and explain why before continuing.
-
----
+- Make the smallest safe change that solves the task; every changed line traces back to the
+  request. Unrequested features, abstractions, configurability, dependencies, and refactors go
+  under `## Not requested — needs your OK` (§2), not into the diff.
+- Leave adjacent code alone: no reformatting of unrelated files, no renames unless required, no
+  deleting unrelated dead code. Match the existing style even where you would differ.
+- Mention unrelated problems in the final notes instead of fixing them silently. If the change
+  grows beyond what was expected, stop and explain before continuing.
 
 ## 5. Ask before doing these things
 
-The baseline starts sessions in `acceptEdits` with Bash pre-allowed, so most tool calls run without
-a permission prompt. **No prompt is not approval.** This list and §8 apply exactly as if every call
-prompted — ask with AskUserQuestion and wait for the answer.
+Sessions start in `acceptEdits` with Bash pre-allowed, so most tool calls run without a prompt.
+No prompt is not approval: ask with AskUserQuestion and wait, exactly as if every call prompted.
 
-Always ask before:
-
-- Adding anything the user did not ask for — an extra fix, refactor, dependency, or scope extension (§2).
-- Adding a new dependency, or adding/changing MCP/external tool configuration.
-- Changing public API behavior.
-- Changing database schema or migrations, or running migrations.
-- Changing authentication or authorization logic.
-- Touching CI/CD, deployment, or infrastructure config (e.g. `deploy/`, `infra/`, `ansible/`).
-- Connecting to non-local systems, or performing any production-impacting action.
-- Reading or handling secrets.
-- Refactoring a broad area.
-- Optimizing realtime/performance-critical code without benchmark data.
-
----
+- Adding anything the user did not ask for (extra fix, refactor, dependency, scope extension),
+  or adding/changing MCP/external tool configuration.
+- Changing public API behavior, database schema/migrations, or authentication/authorization;
+  running migrations.
+- Touching CI/CD, deployment, or infrastructure config (`deploy/`, `infra/`, `ansible/`).
+- Connecting to non-local systems or taking any production-impacting action (§8).
+- Reading or handling secrets (§7).
+- Refactoring a broad area, or optimizing realtime/performance-critical code without benchmark
+  data (§9).
 
 ## 6. Git and repository etiquette
 
-- Never commit directly to `main` or `master` (the hook also blocks pushes to them).
-- **Work in the current checkout.** Do not create a git worktree or clone to read, code, or edit
-  unless the user explicitly asks for one — a branch is enough isolation for normal work. If the
-  environment itself enforces worktree isolation (e.g. background jobs), state that up front and
-  report exactly where the work landed (worktree path + branch) so nothing gets lost.
-- Branch names: `feat/short-description`, `fix/…`, `chore/…`, `refactor/…`.
-- Check `git status` / `git diff` before editing; review your own diff after. Do not overwrite the user's uncommitted changes.
-- Commit only when the user explicitly asks. Use Conventional Commits in English and keep commits focused (do not mix unrelated changes):
-
-```bash
-feat: add camera status filter
-fix: handle empty transcript result
-refactor: simplify session cleanup
-test: add validation tests
-```
-
----
+- Never commit directly to `main` or `master` (the hook also blocks pushes to them). Branch
+  names: `feat/…`, `fix/…`, `chore/…`, `refactor/…`.
+- Work in the current checkout. Create a worktree or clone only when the user asks; if the
+  environment enforces worktree isolation (background jobs), say so and report the worktree path
+  and branch so nothing gets lost.
+- Check `git status` / `git diff` before editing and never overwrite the user's uncommitted
+  changes. Commit only when the user asks, with Conventional Commits in English (`feat:`,
+  `fix:`, `refactor:`, `test:`), one focused change per commit.
 
 ## 7. Secrets and credentials
 
 The hooks block reading or printing secret material (`.env`, `*.key`, `*.pem`, `credentials*`,
-`~/.ssh`, `~/.aws`, …). Do not try to work around them. Placeholder-only templates are the
-exception: `.env.example`, `.env.sample`, `.env.template`, and `.env.dist` are readable and
-editable.
+`~/.ssh`, `~/.aws`, …); placeholder templates `.env.example` / `.env.sample` / `.env.template` /
+`.env.dist` stay readable and editable. Repos on the relaxed profile (`profile=relaxed` in
+`.claude/avn-version`, isolated systems only) can read project-local `.env`/key files; home
+credentials stay blocked. The installer sets the profile; never edit the stamp.
 
-Some repos run the baseline's **relaxed profile** (`profile=relaxed` in `.claude/avn-version`;
-isolated systems with no real secrets only). There, project-local `.env`/key files are readable,
-but home-directory credentials (`~/.ssh`, `~/.aws`, `~/.kube`, kubeconfig) stay blocked and all
-destructive-command guards still apply. The profile is set by the installer — never edit the stamp.
-
-- Reference secrets **by variable name only**. Never read, print, grep, copy, encode, or summarize a secret value.
-- If a task requires a secret, stop and ask the user to handle that step.
-- Keep `.env.example` with placeholder values only (`API_KEY=replace-me`). Never put real values in examples, tests, logs, commit messages, or chat.
-
----
+- Reference secrets by variable name only. Never read, print, grep, copy, encode, or summarize a
+  secret value; if a task needs one, stop and ask the user to do that step.
+- Keep `.env.example` to placeholder values (`API_KEY=replace-me`). Real values never go into
+  examples, tests, logs, commit messages, or chat.
 
 ## 8. Production and customer systems
 
-Assume any non-local system is production unless told otherwise (customer on-prem servers, edge
-boxes, remote hosts, clusters, databases, devices, cameras, shared environments).
+Any non-local system is production unless told otherwise: customer on-prem servers, edge boxes,
+remote hosts, clusters, databases, devices, cameras, shared environments. Data loss and outages
+are not recoverable by a retry.
 
-- **Default stance is read-only.** Any mutating action (deploy, restart, config push, DB write, migration, fleet/device update, file deletion, permission/infra change) requires an explicit instruction naming the target.
-- Do not connect directly to production databases, or deploy manually from a Claude Code session, unless explicitly instructed.
-- For edge devices, list the affected devices and get confirmation before any mass edit/push.
-
-### Data-risk assessment
-
-Required **before proposing or performing** any mutating action on a non-local or shared data
-store. State: (1) the affected data — tables/keys/volumes and approximate scale; (2) whether a
-backup exists and how that was verified; (3) the rollback plan; (4) the blast radius — what else
-reads this data; (5) a dry-run or limited-scope variant to run first. If any of these is unknown,
-stop and ask.
-
-### Deploying a new release (pull-based)
-
-When a deploy means pulling a new version onto a host (git pull + rebuild/restart), follow
-`.claude/rules/deploy.md` step by step — read it before touching the host.
-
----
+- Default stance is read-only. Every mutating action (deploy, restart, config push, DB write,
+  migration, fleet/device update, file deletion, permission/infra change) needs an explicit
+  instruction naming the target.
+- No direct production database connections and no manual deploys from a session unless
+  explicitly instructed. Pull-based deploys follow `.claude/rules/deploy.md` step by step.
+- Edge devices: list the affected devices and get confirmation before any mass edit/push.
+- Data-risk assessment, required before proposing or performing any mutating action on a
+  non-local or shared data store: (1) the affected data and its scale; (2) whether a backup
+  exists and how that was verified; (3) the rollback plan; (4) the blast radius, i.e. what else
+  reads this data; (5) a dry-run or limited-scope variant to run first. Unknown → stop and ask.
 
 ## 9. Realtime, performance, and UI
 
-These are file-type-specific; detailed guidance loads on demand from `.claude/rules/`:
-
-- **Realtime / performance-critical code** (`realtime-performance.md`): hot paths such as video
-  decode, audio, inference loops, tracking, streaming/GStreamer, camera reconnect. Do not optimize
-  without measuring first.
-- **UI work** (`ui.md`): security-ops UI for the Japanese market — reuse components/tokens,
-  operator-under-load readability, JA text/locale rules, WCAG/JIS AA, browser-verified changes.
-
----
+Detailed guidance loads on demand from `.claude/rules/`: `realtime-performance.md` (video
+decode, audio, inference loops, tracking, streaming, camera reconnect: measure before and after,
+never optimize blind) and `ui.md` (reuse components and tokens, the UI/UX design-and-test
+checklist, readability for operators under load, WCAG AA, browser-verified changes).
 
 ## 10. Testing and verification
 
-Verification is required before claiming a task is done. **Never claim completion beyond what you
-actually verified.**
+Verification is required before claiming a task is done; never claim more than you verified.
 
-- Use the project's existing commands (from `package.json`, `Makefile`, `pyproject.toml`, `pytest.ini`, CI config, README). Do not invent commands the repo does not define.
-- The `/verify` skill discovers and runs all layers and produces the report below.
-- **Keep the entire test suite up to date.** When code changes, update every affected test to match the latest behavior — never leave stale, skipped, or commented-out tests.
-- **Always run the full test suite after every change, however small** (plus lint / typecheck / build), and confirm it is green before reporting. Do not settle for running only the tests near your change.
-- **Test the change and everything it can impact — nothing else.** When *authoring* tests or driving e2e for a change, cover the changed behavior in depth — its edge cases, and every flow the change can plausibly affect (callers of changed code, shared components/utilities — the §3 shared-code sweep tells you which). The boundary is impact, not the changed lines: skip only scenarios the change cannot affect; do not pad suites with speculative cases unrelated to the change. (Running the existing full suite is still required — this rule is about where new testing effort goes.)
-
-### Test layers
-
-Run every layer — the full suite — for every change, small or large:
-
-- **Lint / format / typecheck** — always, for any code change.
-- **Unit** — pure logic in isolation; fast. The default for business logic.
-- **Integration** — several real components together (DB, services, pipeline stages).
-- **End-to-end (e2e)** — a full user/flow path against the real running app. **For applications, always test through a real automation tool (Playwright, Puppeteer, Cypress, …)** that drives the actual UI/API — do not fake it with mocks. **Scope e2e to the flow(s) the change touches or can impact**: their happy path plus the failure and edge cases that matter for the change. Do not wander into flows the change cannot affect or write exhaustive scenario matrices — focused scenarios covering the change and its blast radius beat a sprawling suite.
-
-A passing build, a linter, a script diffing output against a fixture, or a screenshot compared to a
-design all count as verification gates.
-
-### E2E practicalities
-
-Shared-environment data hygiene, the browser-automation preflight, and the fallback when the
-environment cannot run e2e (probe once, time-boxed; report "Not run" with evidence — never loop
-on it) live in `.claude/rules/testing.md`.
+- Use the project's own commands (`package.json`, `Makefile`, `pyproject.toml`, CI config,
+  README), never invented ones; `/verify` discovers and runs every layer.
+- Run the full suite (lint/format/typecheck, unit, integration, e2e) after every change, however
+  small, and confirm it is green before reporting. Keep the suite current: update every test the
+  change affects; never leave stale, skipped, or commented-out tests.
+- New testing effort goes to the change and everything it can impact (its edge cases, callers of
+  changed code, shared components per the §3 sweep) and nowhere else: skip only what the change
+  cannot affect, and do not pad suites with unrelated or speculative cases.
+- E2e for applications runs through a real automation tool (Playwright, Puppeteer, Cypress)
+  against the real UI/API, scoped to the flows the change touches or can impact (happy path plus
+  the failure and edge cases that matter). Shared-environment hygiene, the browser preflight, and
+  the no-browser fallback (probe once, report "Not run") are in `.claude/rules/testing.md`.
+- UI changes: also walk the UI/UX checklist in `.claude/rules/ui.md` and report it under
+  `## Verified`.
+- A passing build, a linter, a fixture diff, or a screenshot compared to a design are all
+  verification gates too.
 
 ### By change type
 
-- **Bug fix — systematic debugging:** **reproduce first (always)** → isolate → find the root cause (not the symptom) → fix the smallest relevant path → **sweep the codebase for the same root cause/pattern elsewhere and fix every occurrence** (or list any you intentionally leave, with the reason) → add a regression test and run it → run broader checks. Report: root cause / other affected sites / fix / regression coverage / verified.
-- **New feature:** verify the happy path, important edge cases, invalid input, and — for UI/API — empty/error states and permission/auth behavior. Pick the cases that matter for the changed behavior and what it can impact — not an exhaustive matrix of unrelated combinations. Add or update tests for it (cover application UI/flows with a real e2e test, see above); the only exception is a docs-only change or a project with no test setup.
-- **Refactor:** preserve behavior. Run the same checks before and after when practical and confirm they are unchanged.
+- Bug fix: reproduce first → isolate → root cause, not symptom → smallest fix → sweep the
+  codebase for the same pattern and fix every occurrence (or list what you left and why) →
+  regression test → broader checks. Report root cause / other sites / fix / coverage / verified.
+- New feature: verify the happy path, important edge cases, invalid input, and for UI/API the
+  empty/error states and permission/auth behavior; add or update tests (a real e2e test for
+  application flows). Only a docs-only change or a project with no test setup is exempt.
+- Refactor: preserve behavior; run the same checks before and after and confirm they match.
 
 ### Reporting
 
-Report exactly what you ran and the result — not "tested" or "works". If you could not verify, say
-so with the reason, the risk, and the recommended next step. Close with a brief summary:
+Report exactly what you ran and the result. If you could not verify, say so with the reason, the
+risk, and the recommended next step. If tests are missing or weak, say so and recommend the
+smallest useful test to add. Close with:
 
 ```md
 ## Summary
-- ...
 ## Changed
-- ...
 ## Verified
 - `command`: passed / failed because ...
 - Not run: ... because ...
 ## Notes / Risks
-- ...
 ```
-
-If tests are missing or weak, say so and recommend the smallest useful test to add.
-
----
 
 ## 11. Definition of done
 
-A task is done only when:
-
-- The spec / acceptance criteria are met and the change stays within scope.
+- The acceptance criteria are met and the change stays within scope.
 - Existing project patterns are followed; no unrelated files are modified.
-- Tests are written and passing (or pragmatic verification was done for ML/realtime), and the **evidence is reported**.
-- The diff has been reviewed.
-- No secrets are exposed.
-- No production/customer system was modified without explicit approval.
+- Tests are written and passing (or pragmatic verification done for ML/realtime), with the
+  evidence reported, and the diff has been reviewed.
+- No secrets are exposed; no production/customer system was modified without explicit approval.
 - Remaining risks are clearly reported.
