@@ -119,7 +119,7 @@ check 0 Read file_path '.claude/hooks/agent-guard.sh'
 check 0 Grep path '.claude/hooks'
 check 0 Write file_path '.claude/verify-commands.example'
 check 0 Edit file_path '.claude/skills/verify/SKILL.md'
-check 0 Write file_path '.claude/rules/ui.md'
+check 0 Write file_path '.claude/rules/testing.md'
 check 0 Edit file_path 'src/claude/hooks/app.ts'
 check 0 Write file_path '.claude/settings.json'   # Edit protection = deny rule (see hook header), not this hook
 

@@ -27,9 +27,10 @@
 # Versioning: the baseline's version lives in the VERSION file next to this
 # script. Each install writes a stamp to TARGET_DIR/.claude/avn-version
 # (version + source + profile) and the header/summary show the old → new
-# version. The installed copy (/CLAUDE.md, /.claude/) is gitignored in the
-# target (since v2.11.0), so every developer runs the installer in their own
-# checkout. AVN_REF accepts a branch or a tag (e.g. v2.1.0).
+# version. The installed copy (CLAUDE.md, .claude/) is gitignored in the
+# target, and a copy an earlier release had the repo commit is untracked
+# (git rm --cached, with confirmation) — so every developer runs the installer
+# in their own checkout. AVN_REF accepts a branch or a tag (e.g. v2.1.0).
 #
 # Two ways to run:
 #   • From a clone:   ./install.sh [TARGET_DIR]
@@ -52,14 +53,19 @@ AVN_REPO="${AVN_REPO:-thieunv96/avn}"
 AVN_REF="${AVN_REF:-master}"
 DL_DIR=""
 
-N_CREATE=0; N_UPDATE=0; N_UNCHANGED=0; N_BACKUP=0; N_REMOVE=0
+N_CREATE=0; N_UPDATE=0; N_UNCHANGED=0; N_BACKUP=0; N_REMOVE=0; N_UNTRACK=0; N_GLUED=0
 
-# .gitignore lines the installer appends (and uninstall takes back). The first
-# two keep the whole installed copy out of the target repo's history (anchored
-# to the root so a nested CLAUDE.md in a sub-package stays committable); the
-# rest cover per-developer files and the .bak backups install_file creates.
-# Older lines stay in the list so uninstall can clean up earlier releases.
-GI_LINES=("/CLAUDE.md" "/.claude/" "CLAUDE.local.md" ".claude/settings.local.json" "CLAUDE.md.bak" ".claude/**/*.bak")
+# .gitignore lines the installer manages in the target (uninstall takes all of
+# them back). GI_COPY keeps the whole installed copy out of the target's
+# history at every directory depth (since v2.12.0). GI_COPY_ANCHORED is the
+# root-only form v2.11.0 appended: a normal target gets it replaced, while a
+# baseline source repo (SELF_TARGET) keeps it because that repo tracks
+# src/CLAUDE.md. GI_LOCAL covers per-developer files and the .bak backups
+# install_file creates.
+GI_COPY=("CLAUDE.md" ".claude/")
+GI_COPY_ANCHORED=("/CLAUDE.md" "/.claude/")
+GI_LOCAL=("CLAUDE.local.md" ".claude/settings.local.json" "CLAUDE.md.bak" ".claude/**/*.bak")
+GI_ALL=("${GI_COPY_ANCHORED[@]}" "${GI_COPY[@]}" "${GI_LOCAL[@]}")   # every line any release appended
 
 usage() {
   cat <<'EOF'
@@ -75,8 +81,10 @@ Options:
   --dry-run      Show what would happen; change nothing.
   --backup       Back up overwritten files to <file>.bak (no prompt).
   --no-backup    Overwrite without backups (no prompt).
-  -y, --yes      Don't prompt; use defaults (backup = yes).
-  --force        Overwrite without backups and without any prompt.
+  -y, --yes      Don't prompt; use defaults (backup = yes, untrack a committed
+                 copy = yes).
+  --force        Overwrite without backups and without any prompt; also
+                 untracks a committed copy.
   --profile P    Guard profile to install: strict (default) or relaxed.
                  relaxed is for isolated systems with no real secrets: project
                  .env/key files become readable and docker/DB CLI/package
@@ -108,8 +116,13 @@ file-guard.sh, agent-guard.sh and verify-gate.sh (executable),
 and .claude/settings.json (the strict or relaxed profile variant, shipped
 as-is; hook paths use ${CLAUDE_PROJECT_DIR}). Also writes the baseline version
 and guard profile to .claude/avn-version, and gitignores the installed copy
-(/CLAUDE.md, /.claude/) plus the local files, so each developer runs the
+(CLAUDE.md, .claude/) plus the local files, so each developer runs the
 installer in their own checkout and "avn check" reports when it is outdated.
+When git already tracks that copy (repos installed before v2.11.0) the
+installer offers to untrack it — git rm --cached, the files stay on disk: a
+terminal run asks, -y/--force accept, a headless run without a flag only
+prints the command. Other checkouts lose the copy when they pull that commit
+and run the installer again.
 
 When TARGET_DIR is itself a baseline source repo (it has src/ + install.sh),
 the install refreshes that repo's own installed copy — its running guard —
@@ -258,20 +271,90 @@ install_file() {
   [ "$DRY_RUN" -eq 1 ] || cp "$s" "$d"
 }
 
+# ---- .gitignore helpers (the caller sets GI to the target's .gitignore) ----
+# gi_has LINE — exact-line match; use it only inside a condition (set -e).
+gi_has() { [ -f "$GI" ] && grep -qxF -e "$1" "$GI"; }
+
+# gi_rewrite_without LINE… — drop exact lines in one pass. The result is
+# written through the existing file (cat >), so its mode, owner and a
+# symlinked .gitignore survive; a failed filter leaves the file untouched.
+gi_rewrite_without() {
+  local args=() ln tmp rc=0
+  for ln in "$@"; do args+=(-e "$ln"); done
+  tmp="$(mktemp)" || return 1
+  grep -vxF "${args[@]}" "$GI" > "$tmp" || rc=$?      # 1 = no line left, >1 = a real error
+  if [ "$rc" -le 1 ] && cat "$tmp" > "$GI"; then rc=0; else rc=1; fi
+  rm -f "$tmp"
+  return "$rc"
+}
+
+# gi_append LINE — end an unterminated last line first, so the new line is
+# never glued onto the user's last pattern (".env" + "CLAUDE.md").
+gi_append() {
+  if [ -s "$GI" ] && [ -n "$(tail -c1 "$GI")" ]; then printf '\n' >> "$GI"; fi
+  printf '%s\n' "$1" >> "$GI"
+}
+
+# gi_glue_scan — print lines that look like two patterns glued together by an
+# installer older than v2.12.0, which appended without that check. Detection
+# only, never a repair: each signature is a line the installer appends, stuck
+# to a non-empty prefix and directly followed by the line that release
+# appended next.
+gi_glue_scan() {
+  local prev="" cur
+  [ -f "$GI" ] || return 0
+  while IFS= read -r cur || [ -n "$cur" ]; do
+    case "$prev" in
+      ?*/CLAUDE.md)      if [ "$cur" = "/.claude/" ]; then printf '%s\n' "$prev"; fi ;;
+      ?*CLAUDE.local.md) if [ "$cur" = ".claude/settings.local.json" ]; then printf '%s\n' "$prev"; fi ;;
+      ?*CLAUDE.md.bak)   if [ "$cur" = ".claude/**/*.bak" ]; then printf '%s\n' "$prev"; fi ;;
+    esac
+    prev="$cur"
+  done < "$GI"
+  return 0
+}
+
+# ---- git helpers for the untrack step ----
+# tgit ARGS… — git inside the target, immune to the GIT_DIR / GIT_INDEX_FILE /
+# … a calling git hook exports (they would aim the command at another repo).
+# shellcheck disable=SC2046
+tgit() { ( unset $(git rev-parse --local-env-vars 2>/dev/null); exec git -C "$TARGET_ABS" "$@" ); }
+
+# ut_in_progress — print the merge/rebase/… in progress in the target, or
+# nothing. Staged removals would be folded into the commit being replayed, and
+# git rm resolves unmerged entries as deletions, so the untrack step waits.
+ut_in_progress() {
+  local gd p
+  gd="$(tgit rev-parse --absolute-git-dir 2>/dev/null || true)"
+  if [ -n "$gd" ]; then
+    for p in MERGE_HEAD:merge CHERRY_PICK_HEAD:cherry-pick REVERT_HEAD:revert rebase-merge:rebase rebase-apply:rebase; do
+      if [ -e "$gd/${p%%:*}" ]; then printf '%s' "${p#*:}"; return 0; fi
+    done
+  fi
+  if [ -n "$(tgit ls-files -u -- "${UT_SPECS[@]}" 2>/dev/null | head -n1 || true)" ]; then printf 'unresolved conflict'; fi
+  return 0
+}
+
 # ---- Legacy reconcile (shared by install and uninstall) ----
 # Removes files an old baseline shipped and the current one has dropped
-# (the legacy research workflow; the /map skill dropped in v2.6.1). A file is
-# removed only when (a) it is in the target but NOT in the current baseline
-# source (target .claude/X maps to source src/X), AND (b) its sha256 matches
-# the exact content that prior baseline shipped — a same-named file with
-# different content is user-made and is kept. If the baseline ever ships these
-# paths again under src/, the source-existence guard keeps them.
+# (the legacy research workflow; the /map skill dropped in v2.6.1; rules/ui.md
+# dropped in v2.12.0). A file is removed only when (a) it is in the target but
+# NOT in the current baseline source (target .claude/X maps to source src/X),
+# AND (b) its sha256 matches a version a prior baseline shipped — a same-named
+# file with different content is user-made and is kept. If the baseline ever
+# ships these paths again under src/, the source-existence guard keeps them.
+LEGACY_PATHS=(".claude/agents/impact-research.md" ".claude/agents/security-research.md"
+              ".claude/skills/research/SKILL.md" ".claude/skills/map/SKILL.md"
+              ".claude/rules/ui.md")
+# legacy_sha PATH — every sha256 the path was ever shipped with, space-separated.
+# rules/ui.md: init, quality baseline v2, v2.2.1–v2.7.x, v2.8.0–v2.10.0, v2.11.0.
 legacy_sha() {
   case "$1" in
     ".claude/agents/impact-research.md")   echo "3166e8b7a972aade3c4655b251787097eac0b308071a2579814b5915563e02ea" ;;
     ".claude/agents/security-research.md") echo "22f3cba74273063f96379b8bb815a1e0a24f10d5a9c07f489fe6f31d6fa71d50" ;;
     ".claude/skills/research/SKILL.md")    echo "b0d09c2604255b285d7463299a88810e9a1670105ecced47d7076332c06eb2c7" ;;
     ".claude/skills/map/SKILL.md")         echo "5654b3c54d0271e80af1be0a050075c86a7ec723e3525897885ce58d89a5fd5f" ;;
+    ".claude/rules/ui.md")                 echo "8b4b6ae22aa7d062f85c76377c46fb91443ebf3c378054f70894622e3fad5605 01404f0287f69e69a4c4286011b4bd84b6776c00fecabf8276580fc263d94b80 af88ba06a2436b2b52e68600d02548500a833ebea7aa5a7d4280d23c424f8a38 da8eb690bb830ca837d526f0094a58c5c47723ca443c34ee4cb66e51030cc53f b835d05adccd02547bbe122ebf80c89f1595f353074e46470a4e9e7536bff628" ;;
   esac
 }
 file_sha() {
@@ -280,19 +363,18 @@ file_sha() {
   else echo "unavailable"; fi   # never matches a real hash -> file is kept (safe direction)
 }
 reconcile_legacy() {
-  local rf
-  for rf in ".claude/agents/impact-research.md" \
-            ".claude/agents/security-research.md" \
-            ".claude/skills/research/SKILL.md" \
-            ".claude/skills/map/SKILL.md"; do
+  local rf sha
+  for rf in "${LEGACY_PATHS[@]}"; do
     if [ -f "$TARGET_ABS/$rf" ] && [ ! -e "$SRC/src/${rf#.claude/}" ]; then
-      if [ "$(file_sha "$TARGET_ABS/$rf")" = "$(legacy_sha "$rf")" ]; then
-        line "$RED" "-" "remove" "$rf"
-        [ "$DRY_RUN" -eq 1 ] || rm -f "$TARGET_ABS/$rf"
-        N_REMOVE=$((N_REMOVE+1))
-      else
-        line "$YLW" "⚠" "keep" "$rf (same name as a dropped baseline file but content differs — looks user-made)"
-      fi
+      sha="$(file_sha "$TARGET_ABS/$rf" || true)"
+      case " $(legacy_sha "$rf") " in
+        *" ${sha:-none} "*)      # an empty hash must never match an empty list
+          line "$RED" "-" "remove" "$rf"
+          [ "$DRY_RUN" -eq 1 ] || rm -f "$TARGET_ABS/$rf"
+          N_REMOVE=$((N_REMOVE+1)) ;;
+        *)
+          line "$YLW" "⚠" "keep" "$rf (same name as a dropped baseline file but content differs — looks user-made)" ;;
+      esac
     fi
   done
   # prune legacy dirs only if now empty (rmdir refuses non-empty dirs — never touches user files)
@@ -538,18 +620,16 @@ if [ "$UNINSTALL" -eq 1 ]; then
     fi
   fi
   reconcile_legacy
-  # gitignore — take back exactly the lines the installer appends
+  # gitignore — take back every line any release of the installer appended
   GI="$TARGET_ABS/.gitignore"
   if [ -f "$GI" ]; then
-    for ln in "${GI_LINES[@]}"; do
-      if grep -qxF "$ln" "$GI"; then
-        line "$CYN" "✎" "gitignore" "-= $ln"
-        if [ "$DRY_RUN" -eq 0 ]; then
-          grep -vxF "$ln" "$GI" > "$GI.avn-tmp" || true
-          mv "$GI.avn-tmp" "$GI"
-        fi
-      fi
+    gi_drop=()
+    for ln in "${GI_ALL[@]}"; do
+      if gi_has "$ln"; then line "$CYN" "✎" "gitignore" "-= $ln"; gi_drop+=("$ln"); fi
     done
+    if [ "$DRY_RUN" -eq 0 ] && [ "${#gi_drop[@]}" -gt 0 ]; then
+      gi_rewrite_without "${gi_drop[@]}" || line "$YLW" "⚠" "gitignore" "could not rewrite .gitignore — left as it was"
+    fi
   fi
   # prune now-empty baseline dirs (rmdir refuses non-empty — user files keep them alive)
   if [ "$DRY_RUN" -eq 0 ]; then
@@ -598,6 +678,75 @@ elif [ "$overwrite_n" -gt 0 ] && [ "$DRY_RUN" -eq 0 ]; then
 fi
 
 printf '\n'
+
+# ---- Untrack a copy an earlier release had the repo commit ----
+# .gitignore has no effect on files git already tracks: repos that committed
+# the baseline before v2.11.0 keep tracking CLAUDE.md and .claude/** until
+# those leave the index (git rm --cached — the files stay on disk). Only the
+# copy at the target's root is touched. This runs before the copy loop, while
+# the index still matches the files on disk, so git refuses least. It never
+# passes -f, never runs for a baseline source repo, and never mid-merge.
+UT_N=0; UT_SPECS=(); UT_EXTRA=""; UT_EXTRA_N=0
+if [ "$SELF_TARGET" -eq 0 ] && command -v git >/dev/null 2>&1 && \
+   [ "$(tgit rev-parse --is-inside-work-tree 2>/dev/null || true)" = "true" ]; then
+  # what the baseline ships (or once shipped): "avn install" brings these back
+  UT_SHIPPED=$'\n'".claude/avn-version"$'\n'
+  for d in "${DESTS[@]}"; do UT_SHIPPED+="$(rel "$d")"$'\n'; done
+  for d in "${LEGACY_PATHS[@]}"; do UT_SHIPPED+="$d"$'\n'; done
+  for spec in CLAUDE.md .claude; do
+    n=0
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      n=$((n+1))
+      case "$UT_SHIPPED" in
+        *$'\n'"$f"$'\n'*) ;;
+        *) UT_EXTRA_N=$((UT_EXTRA_N+1)); if [ "$UT_EXTRA_N" -le 8 ]; then UT_EXTRA+="$f"$'\n'; fi ;;
+      esac
+    done < <(tgit -c core.quotePath=false ls-files -- "$spec" 2>/dev/null || true)
+    if [ "$n" -gt 0 ]; then UT_SPECS+=("$spec"); UT_N=$((UT_N+n)); fi
+  done
+fi
+if [ "$UT_N" -gt 0 ]; then
+  printf -v UT_Q '%q' "$TARGET_ABS"
+  UT_CMD="git -C $UT_Q rm -r --cached -- ${UT_SPECS[*]}"
+  UT_BLOCK="$(ut_in_progress)"
+  if [ -n "$UT_BLOCK" ]; then
+    line "$YLW" "⚠" "untrack" "skipped: $UT_BLOCK in progress — finish it, then run: $UT_CMD"
+  else
+    if [ "$UT_EXTRA_N" -gt 0 ]; then
+      line "$YLW" "⚠" "untrack" "$UT_EXTRA_N tracked file(s) under .claude/ are not shipped by the baseline — once untracked they disappear from other checkouts on pull and \"avn install\" will not restore them:"
+      printf '%s' "$UT_EXTRA" | sed 's/^/              /'
+      if [ "$UT_EXTRA_N" -gt 8 ]; then printf '              … and %d more\n' "$((UT_EXTRA_N-8))"; fi
+    fi
+    DO_UNTRACK=0
+    if [ "$DRY_RUN" -eq 1 ]; then
+      line "$CYN" "✎" "untrack" "would untrack $UT_N file(s) (kept on disk): $UT_CMD"
+    else
+      if [ "$ASSUME_YES" -eq 1 ] || [ "$FORCE" -eq 1 ]; then
+        DO_UNTRACK=1
+      elif [ "$HAVE_TTY" -eq 1 ]; then
+        menu_select "CLAUDE.md / .claude/ are tracked by git, so .gitignore has no effect on them. Stop tracking $UT_N file(s)? They stay on disk." \
+                    "Yes — untrack them (recommended)" \
+                    "No  — keep tracking them"
+        if [ "$MENU_CHOICE" -eq 0 ]; then DO_UNTRACK=1; fi
+      fi
+      if [ "$DO_UNTRACK" -eq 1 ]; then
+        if UT_ERR="$(tgit rm -r --cached -q --ignore-unmatch -- "${UT_SPECS[@]}" 2>&1)"; then
+          N_UNTRACK=$UT_N
+          line "$CYN" "✎" "untrack" "$UT_N file(s) removed from the git index (kept on disk)"
+        else
+          line "$YLW" "⚠" "untrack" "git refused — nothing was untracked:"
+          printf '%s\n' "$UT_ERR" | head -n 6 | sed 's/^/              /' || true
+          printf '              inspect: git -C %s diff --cached -- %s\n' "$UT_Q" "${UT_SPECS[*]}"
+          printf '              force (drops content that exists only in the index): git -C %s rm -r --cached -f -- %s\n' "$UT_Q" "${UT_SPECS[*]}"
+        fi
+      else
+        line "$YLW" "⚠" "untrack" "$UT_N file(s) of the installed copy are still tracked by git, so .gitignore has no effect on them."
+        printf '              untrack them (files stay on disk): %s\n' "$UT_CMD"
+      fi
+    fi
+  fi
+fi
 
 # ---- Apply (streams one status line per file; a TTY additionally gets a live progress bar) ----
 TOTAL=${#DESTS[@]}
@@ -654,15 +803,43 @@ else
   [ "$DRY_RUN" -eq 1 ] || { mkdir -p "$TARGET_ABS/.claude"; printf '%s\n' "$STAMP_CONTENT" > "$STAMP"; }
 fi
 
-# .gitignore — append the GI_LINES entries that are missing (creates the file
-# if absent). Exact-line matching keeps re-runs idempotent.
+# .gitignore — keep the installed copy and the local files out of the target's
+# history (creates the file if absent). Exact-line matching keeps re-runs
+# idempotent. A normal target gets the unanchored pair and loses the
+# root-anchored pair v2.11.0 appended; a baseline source repo keeps the
+# anchored pair (see GI_COPY_ANCHORED).
 GI="$TARGET_ABS/.gitignore"
-for ln in "${GI_LINES[@]}"; do
-  if [ ! -f "$GI" ] || ! grep -qxF "$ln" "$GI"; then
+GI_GLUED="$(gi_glue_scan)"                     # before any rewrite: a retired neighbour is its evidence
+if [ "$SELF_TARGET" -eq 1 ]; then
+  GI_ENSURE=("${GI_COPY_ANCHORED[@]}" "${GI_LOCAL[@]}")
+else
+  GI_ENSURE=("${GI_COPY[@]}" "${GI_LOCAL[@]}")
+  gi_drop=()
+  for ln in "${GI_COPY_ANCHORED[@]}"; do
+    if gi_has "$ln"; then line "$CYN" "✎" "gitignore" "-= $ln (replaced by ${ln#/})"; gi_drop+=("$ln"); fi
+  done
+  if [ "$DRY_RUN" -eq 0 ] && [ "${#gi_drop[@]}" -gt 0 ]; then
+    gi_rewrite_without "${gi_drop[@]}" || line "$YLW" "⚠" "gitignore" "could not rewrite .gitignore — left as it was"
+  fi
+fi
+gi_failed=0
+for ln in "${GI_ENSURE[@]}"; do
+  if ! gi_has "$ln"; then
     line "$CYN" "✎" "gitignore" "+= $ln"
-    [ "$DRY_RUN" -eq 1 ] || printf '%s\n' "$ln" >> "$GI"
+    if [ "$DRY_RUN" -eq 0 ] && ! gi_append "$ln" 2>/dev/null; then gi_failed=1; fi
   fi
 done
+if [ "$gi_failed" -eq 1 ]; then
+  line "$YLW" "⚠" "gitignore" "could not write .gitignore (read-only?) — add the lines above yourself"
+fi
+if [ -n "$GI_GLUED" ]; then
+  while IFS= read -r g; do
+    [ -n "$g" ] || continue
+    n="$(grep -nxF -e "$g" "$GI" 2>/dev/null | head -n1 | cut -d: -f1 || true)"
+    line "$YLW" "⚠" "gitignore" "line ${n:-?} looks like two patterns glued together by an older installer: \"$g\" — split it by hand; its first pattern is not being ignored"
+    N_GLUED=$((N_GLUED+1))
+  done <<< "$GI_GLUED"
+fi
 
 # ---- Reconcile: remove files the baseline has dropped (see reconcile_legacy) ----
 reconcile_legacy
@@ -675,6 +852,15 @@ else
   printf '%b✓ done%b  %sbaseline %s (%s) · created %d · updated %d · unchanged %d' "$BOLD$GRN" "$RST" "$DIM" "$NEW_VER" "$PROFILE" "$N_CREATE" "$N_UPDATE" "$N_UNCHANGED"
   [ "$N_BACKUP" -gt 0 ] && printf ' · backed up %d' "$N_BACKUP"
   [ "$N_REMOVE" -gt 0 ] && printf ' · removed %d' "$N_REMOVE"
+  [ "$N_UNTRACK" -gt 0 ] && printf ' · untracked %d' "$N_UNTRACK"
   printf '%b\n' "$RST"
 fi
+if [ "$N_UNTRACK" -gt 0 ]; then
+  printf '  %bnote%b commit the staged removal together with .gitignore — the files stay on this machine.\n' "$DIM" "$RST"
+  printf '  %bnote%b other checkouts lose CLAUDE.md and .claude/ when they pull that commit: run "avn install" there again.\n' "$DIM" "$RST"
+fi
+if [ "$N_GLUED" -gt 0 ]; then
+  printf '  %bnote%b %d .gitignore line(s) need a manual fix — see the gitignore warning above.\n' "$DIM" "$RST" "$N_GLUED"
+fi
 printf '  %bnext%b open Claude Code here and run %b/permissions%b to review the rules.\n' "$DIM" "$RST" "$CYN" "$RST"
+printf '  %bnext%b websites/landing pages: %bclaude plugin install taste-skill@taste-skill --scope user%b (once per machine).\n' "$DIM" "$RST" "$CYN" "$RST"

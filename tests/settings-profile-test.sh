@@ -114,6 +114,17 @@ for label, d in (("strict", strict), ("relaxed", relaxed)):
     cmds = [h.get("command") for e in entries for h in e.get("hooks", [])]
     if len(entries) != 1 or cmds != [AGENT_HOOK]:
         fail(f"{label}: expected exactly one PreToolUse entry (matcher Agent|Task) running agent-guard.sh, got {cmds}")
+    # ---- v2.12.0 invariants ----
+    attr = d.get("attribution")
+    if not isinstance(attr, dict) or attr != {"commit": "", "pr": ""}:
+        fail(f'{label}: attribution must be the object {{"commit": "", "pr": ""}} — never false, '
+             f'which makes older Claude Code versions skip the whole file; got {attr!r}')
+    market = d.get("extraKnownMarketplaces", {}).get("taste-skill")
+    if market != {"source": {"source": "github", "repo": "Leonxlnx/taste-skill"}, "autoUpdate": True}:
+        fail(f'{label}: extraKnownMarketplaces["taste-skill"] must be the github source '
+             f'Leonxlnx/taste-skill with autoUpdate, got {market!r}')
+    if d.get("enabledPlugins", {}).get("taste-skill@taste-skill") is not True:
+        fail(f'{label}: enabledPlugins must enable "taste-skill@taste-skill"')
 
 if failures:
     for f in failures:

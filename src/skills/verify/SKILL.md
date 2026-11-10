@@ -1,6 +1,6 @@
 ---
 name: verify
-description: Runs the project's full verification (lint, typecheck, unit, integration, e2e where available) and produces the evidence report. Use before reporting a coding task as done, or when the user asks to verify.
+description: Runs the project's full verification (lint, typecheck, unit, integration, e2e where available) and produces the evidence report. Use before reporting a coding task as done, or when the user asks to verify. Not re-run for a commit, push, or PR request when the current changes were already verified in this session.
 ---
 
 # Verify: run everything, report evidence
@@ -25,8 +25,8 @@ A layer with no command is reported as "Not run", not faked.
 
 Run the full suite for each discovered layer (lint/format, typecheck, unit, integration, e2e),
 not only the tests near the change. Run e2e under a hard timeout (`timeout 600 <e2e command>`) so
-a hanging browser cannot stall the run. If the change has a UI, also walk the UI/UX checklist in
-`.claude/rules/ui.md` §2 and report both of its groups.
+a hanging browser cannot stall the run. For a website or landing page built with the
+`design-taste-frontend` skill, also run that skill's finish gate and report its `GATE:` line.
 
 ## 3. On failure
 

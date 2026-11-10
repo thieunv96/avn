@@ -132,6 +132,23 @@
   "enableAllProjectMcpServers": false,
   "cleanupPeriodDays": 30,
 
+  "$comment-attribution": "Empty strings switch off the Co-Authored-By commit trailer and the pull-request attribution line (v2.12.0). Keep the OBJECT form: attribution=false needs Claude Code v2.1.281+, and an older version that meets it skips this whole file, dropping every rule and hook.",
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+
+  "$comment-plugins": "Websites and landing pages are built with the design-taste-frontend skill of the taste-skill plugin (github.com/Leonxlnx/taste-skill, MIT; needs Node 22+ and Chrome). The marketplace registers after the workspace trust dialog, but a plugin enabled only in project settings is not fetched automatically — each developer runs once: claude plugin install taste-skill@taste-skill --scope user. Opt out in one checkout with \"taste-skill@taste-skill\": false under enabledPlugins in .claude/settings.local.json.",
+  "extraKnownMarketplaces": {
+    "taste-skill": {
+      "source": { "source": "github", "repo": "Leonxlnx/taste-skill" },
+      "autoUpdate": true
+    }
+  },
+  "enabledPlugins": {
+    "taste-skill@taste-skill": true
+  },
+
   "hooks": {
     "PreToolUse": [
       {

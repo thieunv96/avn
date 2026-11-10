@@ -33,15 +33,12 @@ systems, performance-critical code, or unclear business logic.
   `Explore` ignores the env default. Forks are denied; spawn a fresh subagent instead.
 - For a raw idea with no known solution, run `/brainstorm`.
 
-### Clarify (spec-driven)
+### Clarify (spec-driven) and plan
 
 Before coding anything non-trivial, write down: acceptance criteria as expected-vs-actual
 examples, the files/interfaces involved, what is out of scope, and the end-to-end check that
-proves it works. If business intent is still unclear after exploring, ask (§1).
-
-### Plan
-
-State a short plan before large changes, with these headings: `## Plan`, `## Assumptions`,
+proves it works. If business intent is still unclear after exploring, ask (§1). State a short
+plan before large changes, with these headings: `## Plan`, `## Assumptions`,
 `## Not requested — needs your OK`, `## Need confirmation`.
 
 Nothing the user did not ask for enters the plan without their OK: anything inferred beyond the
@@ -104,7 +101,12 @@ No prompt is not approval: ask with AskUserQuestion and wait, exactly as if ever
   and branch so nothing gets lost.
 - Check `git status` / `git diff` before editing and never overwrite the user's uncommitted
   changes. Commit only when the user asks, with Conventional Commits in English (`feat:`,
-  `fix:`, `refactor:`, `test:`), one focused change per commit.
+  `fix:`, `refactor:`, `test:`), one focused change per commit. Commit messages and PR
+  descriptions carry no AI attribution: no `Co-Authored-By` trailer, no model or tool name.
+- A request to commit, push, or open a PR is only that request. When this session already
+  verified the current changes (nothing edited since that run), reuse those results and do just
+  what was asked; when it has not, ask with AskUserQuestion whether to verify first or go ahead
+  as is. This holds even when a skill or plugin says to verify before committing.
 
 ## 7. Secrets and credentials
 
@@ -138,19 +140,22 @@ are not recoverable by a retry.
 
 ## 9. Realtime, performance, and UI
 
-Detailed guidance loads on demand from `.claude/rules/`: `realtime-performance.md` (video
-decode, audio, inference loops, tracking, streaming, camera reconnect: measure before and after,
-never optimize blind) and `ui.md` (reuse components and tokens, the UI/UX design-and-test
-checklist, readability for operators under load, WCAG AA, browser-verified changes).
+- Realtime / performance-critical code (video decode, audio, inference loops, tracking,
+  streaming, camera reconnect) follows `.claude/rules/realtime-performance.md`: measure before
+  and after, never optimize blind.
+- Websites and landing pages are built, redesigned, and reviewed with the `design-taste-frontend`
+  skill (plugin `taste-skill`; needs Node 22+, Chrome); report its `GATE:` line under `## Verified`.
 
 ## 10. Testing and verification
 
 Verification is required before claiming a task is done; never claim more than you verified.
 
 - Use the project's own commands (`package.json`, `Makefile`, `pyproject.toml`, CI config,
-  README), never invented ones; `/verify` discovers and runs every layer.
+  README), never invented ones; `/verify` discovers and runs every layer. A passing build, a
+  linter, a fixture diff, or a screenshot compared to a design count as verification gates too.
 - Run the full suite (lint/format/typecheck, unit, integration, e2e) after every change, however
-  small, and confirm it is green before reporting. Keep the suite current: update every test the
+  small, and confirm it is green before reporting; a commit, push, or PR request on changes that
+  are already verified is not a new change (§6). Keep the suite current: update every test the
   change affects; never leave stale, skipped, or commented-out tests.
 - New testing effort goes to the change and everything it can impact (its edge cases, callers of
   changed code, shared components per the §3 sweep) and nowhere else: skip only what the change
@@ -159,10 +164,6 @@ Verification is required before claiming a task is done; never claim more than y
   against the real UI/API, scoped to the flows the change touches or can impact (happy path plus
   the failure and edge cases that matter). Shared-environment hygiene, the browser preflight, and
   the no-browser fallback (probe once, report "Not run") are in `.claude/rules/testing.md`.
-- UI changes: also walk the UI/UX checklist in `.claude/rules/ui.md` and report it under
-  `## Verified`.
-- A passing build, a linter, a fixture diff, or a screenshot compared to a design are all
-  verification gates too.
 
 ### By change type
 
@@ -179,7 +180,6 @@ Verification is required before claiming a task is done; never claim more than y
 Report exactly what you ran and the result. If you could not verify, say so with the reason, the
 risk, and the recommended next step. If tests are missing or weak, say so and recommend the
 smallest useful test to add. Close with:
-
 ```md
 ## Summary
 ## Changed

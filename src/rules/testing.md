@@ -29,8 +29,9 @@ test file, and the practical side of running e2e.
 - Unit: pure logic in isolation; fast; the bulk of tests.
 - Integration: several real components together (DB, service, pipeline stage).
 - End-to-end: a full user/flow path through a real automation tool (Playwright/Puppeteer/
-  Cypress); few, high-value, scoped to the flows the change touches or can impact. UI changes
-  also walk the UI/UX checklist in `.claude/rules/ui.md` §2 and report it (ui.md §4).
+  Cypress); few, high-value, scoped to the flows the change touches or can impact. A website or
+  landing page built with the `design-taste-frontend` skill is checked by that skill's own
+  browser checker and finish gate; report its `GATE:` line.
 
 ## E2E on a shared environment
 

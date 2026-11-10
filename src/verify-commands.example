@@ -9,8 +9,11 @@
 # then uncomment/add the commands your project defines (see package.json,
 # Makefile, pyproject.toml — do not invent commands the repo does not define).
 # One command per line; lines starting with # are ignored. Every command must
-# exit 0 for the turn to end. The gate skips read-only turns (clean git tree)
-# and gives up after 3 consecutive blocks so it can never loop forever.
+# exit 0 for the turn to end. The gate skips read-only turns (clean git tree),
+# skips a Stop whose working tree is unchanged since the last run that passed
+# (a commit or a question does not re-run everything), and gives up after 3
+# consecutive blocks so it can never loop forever. Commands read stdin from
+# /dev/null.
 #
 # Only list commands that run in the LOCAL environment where Claude Code runs
 # (fast, deterministic). Do not list a browser-driven e2e command if this

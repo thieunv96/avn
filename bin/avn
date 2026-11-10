@@ -22,7 +22,7 @@
 
 set -euo pipefail
 
-AVN_CLI_VERSION="2.11.0"
+AVN_CLI_VERSION="2.12.0"
 AVN_REPO="${AVN_REPO:-thieunv96/avn}"
 AVN_REF="${AVN_REF:-master}"
 AVN_LOCAL_SRC="${AVN_LOCAL_SRC:-}"
@@ -82,7 +82,9 @@ Usage:
   Other flags (--dry-run, -y, --force, --backup, --no-backup, --no-color,
   --profile strict|relaxed) are passed through to install.sh. Switching a
   repo to the relaxed guard profile is interactive-only: install.sh asks for
-  confirmation on a real terminal and no flag bypasses that. check exits 0
+  confirmation on a real terminal and no flag bypasses that. With -y or
+  --force, install/update also untrack a baseline copy an earlier release had
+  the repo commit (git rm --cached; the files stay on disk). check exits 0
   when up to date, 1 when outdated, 2 on errors (no stamp, network failure)
   — CI can rely on 0/1.
   uninstall removes only files byte-identical to the shipped release (your
