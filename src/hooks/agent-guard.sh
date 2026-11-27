@@ -34,6 +34,11 @@
 # frontmatter is the control there (skills/code-review pins opus); a custom
 # agent named Plan is exempt by name like the built-in.
 #
+# Worktree isolation (v2.13.0): a call with `isolation: "worktree"`, or a
+# custom agent whose definition sets `isolation: worktree`, is blocked for
+# every subagent, Plan included — all work stays in the current checkout.
+# settings.json also denies Agent(isolation:worktree) and fails WorktreeCreate.
+#
 # Contract: hook receives JSON on stdin; exit 0 = allow, exit 2 = block
 # (stderr is shown to Claude as the reason, including how to re-issue the
 # call). Fails closed without python3, like bash-guard and file-guard.
@@ -76,14 +81,18 @@ raw = ti.get("subagent_type")
 typ = raw.strip() if isinstance(raw, str) else ""
 tl = typ.lower()
 
-if tl == "plan":
-    out("OK")  # the planning subagent — the one that may inherit the main model
-if tl == "fork":
-    out("BLOCK subagent 'fork' forks the main conversation and always runs on the main model "
-        "(model overrides are ignored). Spawn a fresh subagent with a self-contained prompt and "
-        'model: "sonnet" (research/explore/search/docs) or "opus" (review/complex reasoning).')
 
-FIELD = re.compile(r"^\s*(name|model)\s*:\s*(.+?)\s*$")
+def wants_worktree(value):
+    return isinstance(value, str) and value.strip().strip("\"'").lower() == "worktree"
+
+
+# Worktrees are banned (v2.13.0): checked before the Plan exemption, because the
+# model policy is not what is at stake here.
+if wants_worktree(ti.get("isolation")):
+    out("BLOCK subagent isolation 'worktree' is disabled by the baseline: every subagent works in "
+        "the current checkout. Re-issue the call without the isolation parameter.")
+
+FIELD = re.compile(r"^\s*(name|model|isolation)\s*:\s*(.+?)\s*$")
 
 
 def frontmatter(path):
@@ -137,6 +146,17 @@ force = (os.environ.get("CLAUDE_CODE_SUBAGENT_MODEL_FORCE") or "").strip()
 param = ti.get("model")
 param = param.strip() if isinstance(param, str) else ""
 definition = find_definition(typ)
+
+if definition is not None and wants_worktree(definition.get("isolation")):
+    out("BLOCK the definition of subagent '" + typ + "' sets isolation: worktree, which the baseline "
+        "disables. Every subagent works in the current checkout; remove that line from the definition.")
+
+if tl == "plan":
+    out("OK")  # the planning subagent — the one that may inherit the main model
+if tl == "fork":
+    out("BLOCK subagent 'fork' forks the main conversation and always runs on the main model "
+        "(model overrides are ignored). Spawn a fresh subagent with a self-contained prompt and "
+        'model: "sonnet" (research/explore/search/docs) or "opus" (review/complex reasoning).')
 
 if force:
     eff, via = (env_model or "inherit"), "CLAUDE_CODE_SUBAGENT_MODEL_FORCE"

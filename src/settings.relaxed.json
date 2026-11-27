@@ -1,5 +1,7 @@
 {
-  "$comment": "ThieuNV Claude Code baseline — .claude/settings.json, RELAXED profile (installed by install.sh --profile relaxed; the default/strict variant is settings.json). For isolated systems with no real secrets only: project-local secret reads (.env, keys, certs, secrets/) are permitted, docker / DB CLIs / package installs run without prompts, and curl/wget drop from deny to ask. Machine credentials (~/.ssh, ~/.aws, ~/.kube, kubeconfig), destructive commands (rm -rf, DROP/TRUNCATE, docker volume rm, git push to main) and the .claude/* self-edit denies stay exactly as in strict — the hooks read profile=relaxed from .claude/avn-version and lift only their project-secret rules. Auto-accept and the subagent model policy are identical to strict (permissions.defaultMode acceptEdits + bare 'Bash' allow; hooks/agent-guard.sh + Agent(fork) deny; env CLAUDE_CODE_SUBAGENT_MODEL=sonnet) — see the strict file's comment for the rationale. tests/settings-profile-test.sh asserts this file differs from settings.json in exactly the documented ways. Verify rules after install with /permissions inside Claude Code.",
+  "$comment": "ThieuNV Claude Code baseline — .claude/settings.json, RELAXED profile (installed by install.sh --profile relaxed; the default/strict variant is settings.json). For isolated systems with no real secrets only: project-local secret reads (.env, keys, certs, secrets/) are permitted, docker / DB CLIs / package installs run without prompts, and curl/wget drop from deny to ask. Machine credentials (~/.ssh, ~/.aws, ~/.kube, kubeconfig), destructive commands (rm -rf, DROP/TRUNCATE, docker volume rm, git push to main), the worktree ban, the outside-directory boundary and the .claude/* self-edit denies stay exactly as in strict — the hooks read profile=relaxed from .claude/avn-version and lift only their project-secret rules. Auto-accept and the subagent model policy are identical to strict (permissions.defaultMode acceptEdits + bare 'Bash' allow; hooks/agent-guard.sh + Agent(fork) deny; env CLAUDE_CODE_SUBAGENT_MODEL=sonnet) — see the strict file's comments for the rationale. tests/settings-profile-test.sh asserts this file differs from settings.json in exactly the documented ways. Verify rules after install with /permissions inside Claude Code.",
+
+  "$comment-ask": "Ask by action, not by tool (v2.13.0): kubectl, helm, aws, gcloud, az and systemctl prompt only for the listed data- or state-changing actions, exactly as in strict. The docker, SQL-client and redis-cli action rules of strict are absent here: this profile is for isolated systems, where those tools never prompt. tests/settings-profile-test.sh generates this list and fails on any drift.",
 
   "permissions": {
 
@@ -12,6 +14,7 @@
       "Bash(rm -fR:*)",
       "Bash(git push --force:*)",
       "Bash(git push -f:*)",
+      "Bash(git worktree add:*)",
       "Bash(npm install -g:*)",
 
       "Read(**/kubeconfig)",
@@ -24,13 +27,17 @@
       "Edit(**/.mcp.json)",
       "Edit(~/.claude/settings.json)",
       "Edit(~/.claude/hooks/**)",
+      "Edit(~/.claude/avn-scope/**)",
       "Edit(.claude/settings.json)",
       "Edit(.claude/settings.local.json)",
       "Edit(.claude/hooks/**)",
       "Edit(.claude/verify-commands)",
       "Edit(.claude/avn-version)",
 
-      "Agent(fork)"
+      "Agent(fork)",
+      "Agent(isolation:worktree)",
+      "EnterWorktree",
+      "ExitWorktree"
     ],
 
     "ask": [
@@ -39,20 +46,88 @@
       "Bash(gh pr merge:*)",
       "Bash(gh release:*)",
       "Bash(gh repo delete:*)",
+
       "Bash(curl:*)",
       "Bash(wget:*)",
-      "Bash(kubectl:*)",
-      "Bash(helm:*)",
+
+      "Bash(kubectl* apply *)",
+      "Bash(kubectl* delete *)",
+      "Bash(kubectl* create *)",
+      "Bash(kubectl* replace *)",
+      "Bash(kubectl* patch *)",
+      "Bash(kubectl* edit *)",
+      "Bash(kubectl* scale *)",
+      "Bash(kubectl* set *)",
+      "Bash(kubectl* exec *)",
+      "Bash(kubectl* drain *)",
+      "Bash(kubectl* rollout restart*)",
+      "Bash(kubectl* rollout undo*)",
+      "Bash(kubectl* config use-context*)",
+      "Bash(kubectl* config set*)",
+
+      "Bash(helm* install *)",
+      "Bash(helm* upgrade *)",
+      "Bash(helm* uninstall *)",
+      "Bash(helm* delete *)",
+      "Bash(helm* rollback *)",
+
+      "Bash(aws* s3 rm *)",
+      "Bash(aws* s3 rb *)",
+      "Bash(aws* s3 mv *)",
+      "Bash(aws* s3 sync *)",
+      "Bash(aws * delete-*)",
+      "Bash(aws * put-*)",
+      "Bash(aws * create-*)",
+      "Bash(aws * update-*)",
+      "Bash(aws * modify-*)",
+      "Bash(aws * terminate-*)",
+      "Bash(aws * stop-*)",
+      "Bash(aws * start-*)",
+      "Bash(aws * run-*)",
+      "Bash(aws * reboot-*)",
+
+      "Bash(gcloud * delete *)",
+      "Bash(gcloud * create *)",
+      "Bash(gcloud * update *)",
+      "Bash(gcloud * set *)",
+      "Bash(gcloud * rm *)",
+      "Bash(gcloud * ssh *)",
+      "Bash(gcloud * stop *)",
+      "Bash(gcloud * start *)",
+      "Bash(gcloud * reset *)",
+      "Bash(gcloud * add-iam-policy-binding *)",
+      "Bash(gcloud * remove-iam-policy-binding *)",
+      "Bash(gcloud * deploy*)",
+
+      "Bash(az * delete *)",
+      "Bash(az * create *)",
+      "Bash(az * update *)",
+      "Bash(az * set *)",
+      "Bash(az * start *)",
+      "Bash(az * stop *)",
+      "Bash(az * restart *)",
+      "Bash(az * deallocate *)",
+      "Bash(az * purge *)",
+      "Bash(az * upload*)",
+
+      "Bash(systemctl* start *)",
+      "Bash(systemctl* stop *)",
+      "Bash(systemctl* restart *)",
+      "Bash(systemctl* enable *)",
+      "Bash(systemctl* disable *)",
+      "Bash(systemctl* mask *)",
+      "Bash(systemctl* kill *)",
+      "Bash(systemctl* reload*)",
+      "Bash(systemctl* daemon-re*)",
+      "Bash(systemctl* reboot*)",
+      "Bash(systemctl* poweroff*)",
+
       "Bash(terraform:*)",
       "Bash(ansible:*)",
       "Bash(ansible-playbook:*)",
-      "Bash(aws:*)",
-      "Bash(gcloud:*)",
-      "Bash(az:*)",
       "Bash(ssh:*)",
       "Bash(scp:*)",
-      "Bash(rsync:*)",
-      "Bash(systemctl:*)"
+      "Bash(rsync:*)"
     ],
 
     "allow": [
@@ -117,7 +192,9 @@
       "Bash(redis-cli:*)"
     ],
 
-    "defaultMode": "acceptEdits"
+    "defaultMode": "acceptEdits",
+    "blockReadsOutsideWorkingDirectories": true,
+    "blockWritesOutsideWorkingDirectories": true
   },
 
   "$comment-env": "CLAUDE_AFK_TIMEOUT_MS disables the 60s AskUserQuestion auto-advance ('AFK mode') introduced unannounced in Claude Code v2.1.198, which made interview flows (/brainstorm) proceed without the user's answer. Undocumented var (github.com/anthropics/claude-code/issues/73125); versions without AFK ignore it harmlessly. If your Claude Code exposes a question-timeout toggle in /config, keep it OFF. CLAUDE_CODE_SUBAGENT_MODEL=sonnet is the default model for subagents that neither pass a model nor pin one in their definition (general-purpose, model-less custom agents); the built-in Explore ignores it and must be given model explicitly. hooks/agent-guard.sh enforces the policy either way.",
@@ -157,6 +234,11 @@
           {
             "type": "command",
             "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/bash-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/scope-guard.sh",
+            "timeout": 10
           }
         ]
       },
@@ -175,6 +257,27 @@
           {
             "type": "command",
             "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/agent-guard.sh"
+          }
+        ]
+      }
+    ],
+    "DirectoryAdded": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/scope-guard.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'BLOCKED by baseline policy: git worktrees are disabled. Work in the current checkout and create a branch there (git checkout -b).' >&2; exit 2"
           }
         ]
       }

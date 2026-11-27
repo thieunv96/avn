@@ -2,8 +2,8 @@
 
 How Claude Code works in this repository: the judgment layer of ThieuNV's shared quality
 baseline. Hard enforcement lives in `.claude/hooks/` and `.claude/settings.json`, which block
-dangerous actions deterministically; do not restate or work around them. File-type guidance
-lives in `.claude/rules/` and loads on demand. Keep every instruction concrete and verifiable.
+dangerous actions deterministically; do not restate or work around them. `.claude/rules/` loads
+on demand; `profile.md` (the user) always loads. Keep every instruction concrete and verifiable.
 
 ## 1. Communication and language
 
@@ -23,15 +23,14 @@ systems, performance-critical code, or unclear business logic.
 ### Explore
 
 - Read the relevant existing code before writing any, and reuse its patterns (§3).
-- Delegate only large, independent work (web research, broad exploration of an unfamiliar
-  codebase) so the main context stays focused; do yourself what fits in a handful of tool calls.
-  The baseline ships Sonnet-pinned subagents for this: `web-researcher`, `codebase-explorer`
-  (read-only, `file:line` answers), `docs-writer`. Launch independent subagents in parallel.
+- Delegate only large, independent work (web research, broad codebase exploration) so the main
+  context stays focused; do yourself what fits in a handful of tool calls. Shipped Sonnet-pinned
+  subagents: `web-researcher`, `codebase-explorer`, `docs-writer`. Run independent ones in parallel.
 - Subagent model policy (enforced by `agent-guard.sh`): every subagent except the built-in
   `Plan` runs on Sonnet or Opus, in every permission mode. Pass `model: "sonnet"` (research,
   exploration, docs) or `model: "opus"` (review, complex reasoning) explicitly; the built-in
   `Explore` ignores the env default. Forks are denied; spawn a fresh subagent instead.
-- For a raw idea with no known solution, run `/brainstorm`.
+- For a raw idea with no known solution, run `/brainstorm`; for a report to people, `/report`.
 
 ### Clarify (spec-driven) and plan
 
@@ -79,8 +78,9 @@ response format, UI/component and config patterns) instead of implementing from 
 
 ## 5. Ask before doing these things
 
-Sessions start in `acceptEdits` with Bash pre-allowed, so most tool calls run without a prompt.
-No prompt is not approval: ask with AskUserQuestion and wait, exactly as if every call prompted.
+Most tool calls run without a prompt (`acceptEdits` with Bash pre-allowed, or auto mode). No
+prompt is not approval: ask with AskUserQuestion and wait as if every call prompted. If a guard
+blocks a command you still need, show the user the exact command and what it changes; they run it.
 
 - Adding anything the user did not ask for (extra fix, refactor, dependency, scope extension),
   or adding/changing MCP/external tool configuration.
@@ -88,6 +88,8 @@ No prompt is not approval: ask with AskUserQuestion and wait, exactly as if ever
   running migrations.
 - Touching CI/CD, deployment, or infrastructure config (`deploy/`, `infra/`, `ansible/`).
 - Connecting to non-local systems or taking any production-impacting action (§8).
+- Using a path outside the project directory and this project's part of `~/.claude`: name the
+  directory and why, then wait for the user's `/add-dir`. Temporary files: session scratchpad.
 - Reading or handling secrets (§7).
 - Refactoring a broad area, or optimizing realtime/performance-critical code without benchmark
   data (§9).
@@ -96,17 +98,15 @@ No prompt is not approval: ask with AskUserQuestion and wait, exactly as if ever
 
 - Never commit directly to `main` or `master` (the hook also blocks pushes to them). Branch
   names: `feat/…`, `fix/…`, `chore/…`, `refactor/…`.
-- Work in the current checkout. Create a worktree or clone only when the user asks; if the
-  environment enforces worktree isolation (background jobs), say so and report the worktree path
-  and branch so nothing gets lost.
+- Work in the current checkout, always: never create or enter a git worktree, in the main session
+  or a subagent. Branch there with `git checkout -b`; make a second clone only when the user asks.
 - Check `git status` / `git diff` before editing and never overwrite the user's uncommitted
   changes. Commit only when the user asks, with Conventional Commits in English (`feat:`,
   `fix:`, `refactor:`, `test:`), one focused change per commit. Commit messages and PR
   descriptions carry no AI attribution: no `Co-Authored-By` trailer, no model or tool name.
-- A request to commit, push, or open a PR is only that request. When this session already
-  verified the current changes (nothing edited since that run), reuse those results and do just
-  what was asked; when it has not, ask with AskUserQuestion whether to verify first or go ahead
-  as is. This holds even when a skill or plugin says to verify before committing.
+- A request to commit, push, or open a PR is only that request: reuse this session's verification
+  when nothing was edited since that run; otherwise ask with AskUserQuestion whether to verify
+  first or go ahead as is. This holds even when a skill or plugin says to verify before committing.
 
 ## 7. Secrets and credentials
 

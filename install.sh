@@ -110,8 +110,8 @@ Env:
   AVN_REF        Branch or tag to fetch, e.g. master or v2.1.0 (default: master).
 
 Installs (from the src/ tree of the baseline) CLAUDE.md, .claude/rules/*.md,
-.claude/skills/** (brainstorm, code-review, verify), the hooks bash-guard.sh,
-file-guard.sh, agent-guard.sh and verify-gate.sh (executable),
+.claude/skills/** (brainstorm, code-review, report, verify), the hooks bash-guard.sh,
+file-guard.sh, agent-guard.sh, scope-guard.sh and verify-gate.sh (executable),
 .claude/verify-commands.example,
 and .claude/settings.json (the strict or relaxed profile variant, shipped
 as-is; hook paths use ${CLAUDE_PROJECT_DIR}). Also writes the baseline version
@@ -432,7 +432,7 @@ else
   SRC_DESC="remote: ${AVN_REPO}@${AVN_REF}"
 fi
 
-for f in "src/CLAUDE.md" "src/settings.json" "src/settings.relaxed.json" "src/hooks/bash-guard.sh" "src/hooks/file-guard.sh" "src/hooks/agent-guard.sh" "src/hooks/verify-gate.sh"; do
+for f in "src/CLAUDE.md" "src/settings.json" "src/settings.relaxed.json" "src/hooks/bash-guard.sh" "src/hooks/file-guard.sh" "src/hooks/agent-guard.sh" "src/hooks/scope-guard.sh" "src/hooks/verify-gate.sh"; do
   if [ -z "${SRC:-}" ] || [ ! -f "$SRC/$f" ]; then
     printf '%b✗%b baseline source is missing %s\n' "$RED" "$RST" "$f" >&2; exit 1
   fi
@@ -477,6 +477,7 @@ fi
 add_pair "$SRC/src/hooks/bash-guard.sh" "$TARGET_ABS/.claude/hooks/bash-guard.sh"
 add_pair "$SRC/src/hooks/file-guard.sh" "$TARGET_ABS/.claude/hooks/file-guard.sh"
 add_pair "$SRC/src/hooks/agent-guard.sh" "$TARGET_ABS/.claude/hooks/agent-guard.sh"
+add_pair "$SRC/src/hooks/scope-guard.sh" "$TARGET_ABS/.claude/hooks/scope-guard.sh"
 add_pair "$SRC/src/hooks/verify-gate.sh" "$TARGET_ABS/.claude/hooks/verify-gate.sh"
 add_pair "$SRC/src/verify-commands.example" "$TARGET_ABS/.claude/verify-commands.example"
 # settings.json: the installed name is always .claude/settings.json; the shipped
@@ -771,6 +772,7 @@ done
 [ "$DRY_RUN" -eq 1 ] || chmod +x "$TARGET_ABS/.claude/hooks/bash-guard.sh" \
                                  "$TARGET_ABS/.claude/hooks/file-guard.sh" \
                                  "$TARGET_ABS/.claude/hooks/agent-guard.sh" \
+                                 "$TARGET_ABS/.claude/hooks/scope-guard.sh" \
                                  "$TARGET_ABS/.claude/hooks/verify-gate.sh"
 
 # ---- Version stamp (written directly, not via install_file: a stamp never
