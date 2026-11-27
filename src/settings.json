@@ -1,5 +1,9 @@
 {
-  "$comment": "ThieuNV Claude Code baseline — .claude/settings.json (project-level, shipped as-is by install.sh). This is the STRICT profile (the default); settings.relaxed.json is the relaxed variant selected via install.sh --profile. Rule syntax: Bash uses exact or prefix match with ':*' (NOT regex). Read/Edit use gitignore-style paths. Precedence: deny > ask > allow — first match wins, so an ask rule still prompts when the bare 'Bash' allow rule also matches. Auto-accept (v2.10.0): permissions.defaultMode acceptEdits runs file edits without prompts and the bare 'Bash' allow rule runs every Bash command no deny/ask rule names, so the deny/ask lists plus the PreToolUse hooks are the only prompt/blocking boundary (defaultMode is read ONLY inside permissions; a top-level key is ignored). Subagent model policy: hooks/agent-guard.sh blocks any subagent except Plan that would not run on Sonnet or Opus, Agent(fork) is denied because forks always run on the main model, and env CLAUDE_CODE_SUBAGENT_MODEL=sonnet gives general-purpose/model-less custom agents a compliant default. Hook paths use ${CLAUDE_PROJECT_DIR} so every repo (including this one) is guarded. Dotenv policy lives in hooks/file-guard.sh (blocks all .env* except the placeholder templates .env.example/sample/template/dist — deny globs cannot express that exception); the bare .env deny rules here are defense-in-depth. The .claude/* self-edit denies keep the agent from neutralizing its own guard layer (file-guard and bash-guard rule 14 are the deterministic backstop). Verify rules after install with /permissions inside Claude Code.",
+  "$comment": "ThieuNV Claude Code baseline — .claude/settings.json (project-level, shipped as-is by install.sh). This is the STRICT profile (the default); settings.relaxed.json is the relaxed variant selected via install.sh --profile. Rule syntax: 'Bash(x:*)' is a prefix match, a '*' anywhere else matches any text (NOT regex), matching is case-sensitive. Read/Edit use gitignore-style paths. Precedence: deny > ask > allow across every settings file — an ask rule prompts even when an allow rule also matches, and it applies when any part of a compound command matches. Permission modes: permissions.defaultMode acceptEdits runs file edits without prompts and the bare 'Bash' allow rule runs every Bash command no deny/ask rule names; in auto mode Claude Code drops that bare rule and a classifier decides instead. Either way the deny/ask lists plus the PreToolUse hooks are the only deterministic boundary (defaultMode is read ONLY inside permissions; a top-level key is ignored). Subagent model policy: hooks/agent-guard.sh blocks any subagent except Plan that would not run on Sonnet or Opus, Agent(fork) is denied because forks always run on the main model, and env CLAUDE_CODE_SUBAGENT_MODEL=sonnet gives general-purpose/model-less custom agents a compliant default. Hook paths use ${CLAUDE_PROJECT_DIR} so every repo (including this one) is guarded. Dotenv policy lives in hooks/file-guard.sh (blocks all .env* except the placeholder templates .env.example/sample/template/dist — deny globs cannot express that exception); the bare .env deny rules here are defense-in-depth. The .claude/* self-edit denies keep the agent from neutralizing its own guard layer (file-guard and bash-guard rule 14 are the deterministic backstop). Verify rules after install with /permissions inside Claude Code.",
+
+  "$comment-ask": "Ask by action, not by tool (v2.13.0): docker, the SQL clients, redis-cli, kubectl, helm, aws, gcloud, az and systemctl prompt only for the listed data- or state-changing actions (the SQL and redis rules start with '*' so they also match 'docker exec <container> psql …'; they see SQL written inline after the client name, in upper or lower case — SQL piped in, read from a file or sent through a heredoc is not asked about). Read-only and run/build commands are not listed, and neither is anything the lists do not know: those are left to the permission mode. Destructive commands (DROP, TRUNCATE, volume rm, FLUSHALL, rm -rf, …) never reach these rules: hooks/bash-guard.sh blocks them. tests/settings-profile-test.sh generates this list from the action families and fails on any drift, so change both together.",
+
+  "$comment-scope": "Outside directories (v2.13.0, needs Claude Code 2.1.314+): blockReads/WritesOutsideWorkingDirectories make the file tools refuse any path outside the project until the user grants a directory with /add-dir (one grant lasts the session). hooks/scope-guard.sh applies the same boundary to paths named in Bash commands, which those two settings leave open for writes and program arguments, and records each /add-dir through the DirectoryAdded event in ~/.claude/avn-scope/ (deny-listed for edits and blocked in Bash, so the obvious ways for the agent to grant itself are closed). Inside ~/.claude only CLAUDE.md, rules, skills, agents, commands, plans, output-styles and this project's own folder under projects/ are open without a grant. Worktrees are banned (v2.13.0): the EnterWorktree/ExitWorktree tools, 'git worktree add' and Agent isolation are denied, and the WorktreeCreate hook fails every other route (--worktree, background sessions, agent definitions).",
 
   "permissions": {
 
@@ -12,6 +16,7 @@
       "Bash(rm -fR:*)",
       "Bash(git push --force:*)",
       "Bash(git push -f:*)",
+      "Bash(git worktree add:*)",
       "Bash(npm install -g:*)",
       "Bash(curl:*)",
       "Bash(wget:*)",
@@ -36,13 +41,17 @@
       "Edit(**/.mcp.json)",
       "Edit(~/.claude/settings.json)",
       "Edit(~/.claude/hooks/**)",
+      "Edit(~/.claude/avn-scope/**)",
       "Edit(.claude/settings.json)",
       "Edit(.claude/settings.local.json)",
       "Edit(.claude/hooks/**)",
       "Edit(.claude/verify-commands)",
       "Edit(.claude/avn-version)",
 
-      "Agent(fork)"
+      "Agent(fork)",
+      "Agent(isolation:worktree)",
+      "EnterWorktree",
+      "ExitWorktree"
     ],
 
     "ask": [
@@ -51,30 +60,131 @@
       "Bash(gh pr merge:*)",
       "Bash(gh release:*)",
       "Bash(gh repo delete:*)",
+
       "Bash(npx playwright install:*)",
       "Bash(npm install:*)",
       "Bash(yarn add:*)",
       "Bash(pnpm add:*)",
       "Bash(pip install:*)",
       "Bash(uv add:*)",
-      "Bash(docker compose:*)",
-      "Bash(docker-compose:*)",
-      "Bash(docker inspect:*)",
-      "Bash(kubectl:*)",
-      "Bash(helm:*)",
+
+      "Bash(docker rm:*)",
+      "Bash(docker rmi:*)",
+      "Bash(docker * rm *)",
+      "Bash(docker * prune*)",
+      "Bash(docker*compose* down)",
+      "Bash(docker*compose* down *)",
+      "Bash(docker*compose* rm)",
+      "Bash(docker*compose* rm *)",
+
+      "Bash(*psql*INSERT INTO *)",
+      "Bash(*psql*insert into *)",
+      "Bash(*psql*UPDATE *SET *)",
+      "Bash(*psql*update *set *)",
+      "Bash(*psql*DELETE FROM *)",
+      "Bash(*psql*delete from *)",
+      "Bash(*psql*ALTER *)",
+      "Bash(*psql*alter *)",
+      "Bash(*mysql*INSERT INTO *)",
+      "Bash(*mysql*insert into *)",
+      "Bash(*mysql*UPDATE *SET *)",
+      "Bash(*mysql*update *set *)",
+      "Bash(*mysql*DELETE FROM *)",
+      "Bash(*mysql*delete from *)",
+      "Bash(*mysql*ALTER *)",
+      "Bash(*mysql*alter *)",
+
+      "Bash(*redis-cli* DEL *)",
+      "Bash(*redis-cli* del *)",
+      "Bash(*redis-cli* UNLINK *)",
+      "Bash(*redis-cli* unlink *)",
+      "Bash(*redis-cli* SET *)",
+      "Bash(*redis-cli* set *)",
+      "Bash(*redis-cli* HSET *)",
+      "Bash(*redis-cli* hset *)",
+      "Bash(*redis-cli* HDEL *)",
+      "Bash(*redis-cli* hdel *)",
+      "Bash(*redis-cli* EXPIRE *)",
+      "Bash(*redis-cli* expire *)",
+
+      "Bash(kubectl* apply *)",
+      "Bash(kubectl* delete *)",
+      "Bash(kubectl* create *)",
+      "Bash(kubectl* replace *)",
+      "Bash(kubectl* patch *)",
+      "Bash(kubectl* edit *)",
+      "Bash(kubectl* scale *)",
+      "Bash(kubectl* set *)",
+      "Bash(kubectl* exec *)",
+      "Bash(kubectl* drain *)",
+      "Bash(kubectl* rollout restart*)",
+      "Bash(kubectl* rollout undo*)",
+      "Bash(kubectl* config use-context*)",
+      "Bash(kubectl* config set*)",
+
+      "Bash(helm* install *)",
+      "Bash(helm* upgrade *)",
+      "Bash(helm* uninstall *)",
+      "Bash(helm* delete *)",
+      "Bash(helm* rollback *)",
+
+      "Bash(aws* s3 rm *)",
+      "Bash(aws* s3 rb *)",
+      "Bash(aws* s3 mv *)",
+      "Bash(aws* s3 sync *)",
+      "Bash(aws * delete-*)",
+      "Bash(aws * put-*)",
+      "Bash(aws * create-*)",
+      "Bash(aws * update-*)",
+      "Bash(aws * modify-*)",
+      "Bash(aws * terminate-*)",
+      "Bash(aws * stop-*)",
+      "Bash(aws * start-*)",
+      "Bash(aws * run-*)",
+      "Bash(aws * reboot-*)",
+
+      "Bash(gcloud * delete *)",
+      "Bash(gcloud * create *)",
+      "Bash(gcloud * update *)",
+      "Bash(gcloud * set *)",
+      "Bash(gcloud * rm *)",
+      "Bash(gcloud * ssh *)",
+      "Bash(gcloud * stop *)",
+      "Bash(gcloud * start *)",
+      "Bash(gcloud * reset *)",
+      "Bash(gcloud * add-iam-policy-binding *)",
+      "Bash(gcloud * remove-iam-policy-binding *)",
+      "Bash(gcloud * deploy*)",
+
+      "Bash(az * delete *)",
+      "Bash(az * create *)",
+      "Bash(az * update *)",
+      "Bash(az * set *)",
+      "Bash(az * start *)",
+      "Bash(az * stop *)",
+      "Bash(az * restart *)",
+      "Bash(az * deallocate *)",
+      "Bash(az * purge *)",
+      "Bash(az * upload*)",
+
+      "Bash(systemctl* start *)",
+      "Bash(systemctl* stop *)",
+      "Bash(systemctl* restart *)",
+      "Bash(systemctl* enable *)",
+      "Bash(systemctl* disable *)",
+      "Bash(systemctl* mask *)",
+      "Bash(systemctl* kill *)",
+      "Bash(systemctl* reload*)",
+      "Bash(systemctl* daemon-re*)",
+      "Bash(systemctl* reboot*)",
+      "Bash(systemctl* poweroff*)",
+
       "Bash(terraform:*)",
       "Bash(ansible:*)",
       "Bash(ansible-playbook:*)",
-      "Bash(aws:*)",
-      "Bash(gcloud:*)",
-      "Bash(az:*)",
       "Bash(ssh:*)",
       "Bash(scp:*)",
-      "Bash(rsync:*)",
-      "Bash(psql:*)",
-      "Bash(mysql:*)",
-      "Bash(redis-cli:*)",
-      "Bash(systemctl:*)"
+      "Bash(rsync:*)"
     ],
 
     "allow": [
@@ -127,7 +237,9 @@
       "Bash(python --version)"
     ],
 
-    "defaultMode": "acceptEdits"
+    "defaultMode": "acceptEdits",
+    "blockReadsOutsideWorkingDirectories": true,
+    "blockWritesOutsideWorkingDirectories": true
   },
 
   "$comment-env": "CLAUDE_AFK_TIMEOUT_MS disables the 60s AskUserQuestion auto-advance ('AFK mode') introduced unannounced in Claude Code v2.1.198, which made interview flows (/brainstorm) proceed without the user's answer. Undocumented var (github.com/anthropics/claude-code/issues/73125); versions without AFK ignore it harmlessly. If your Claude Code exposes a question-timeout toggle in /config, keep it OFF. CLAUDE_CODE_SUBAGENT_MODEL=sonnet is the default model for subagents that neither pass a model nor pin one in their definition (general-purpose, model-less custom agents); the built-in Explore ignores it and must be given model explicitly. hooks/agent-guard.sh enforces the policy either way.",
@@ -167,6 +279,11 @@
           {
             "type": "command",
             "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/bash-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/scope-guard.sh",
+            "timeout": 10
           }
         ]
       },
@@ -185,6 +302,27 @@
           {
             "type": "command",
             "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/agent-guard.sh"
+          }
+        ]
+      }
+    ],
+    "DirectoryAdded": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/scope-guard.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'BLOCKED by baseline policy: git worktrees are disabled. Work in the current checkout and create a branch there (git checkout -b).' >&2; exit 2"
           }
         ]
       }

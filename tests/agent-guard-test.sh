@@ -34,6 +34,7 @@ agent "$PROJ/.claude/agents/nested/deep.md"    deep-agent    'model: opus'
 agent "$PROJ/.claude/agents/user-agent.md"     user-agent    'model: haiku'   # shadows the user-level copy
 agent "$USERHOME/.claude/agents/user-agent.md" user-agent    'model: sonnet'
 agent "$USERHOME/.claude/agents/home-only.md"  home-only     'model: sonnet'
+agent "$PROJ/.claude/agents/wt.md"             wt-agent      $'model: sonnet\nisolation: worktree'
 printf -- '---\nname: body-trap\ndescription: fixture\n---\n\nmodel: sonnet\n' > "$PROJ/.claude/agents/body-trap.md"
 printf -- '---\nmodel: sonnet\n---\n' > "$PROJ/.claude/agents/stem-only.md"   # no name: → file stem
 printf 'model: sonnet\n' > "$PROJ/.claude/agents/no-frontmatter.md"           # not a definition
@@ -161,6 +162,21 @@ check_raw 0 '{"tool_input":{"subagent_type":"Explore","model":"sonnet"}}'
 check_raw 2 '{"tool_name":"Agent","tool_input":{"subagent_type":"Explore","model":42}}'   # non-string model = absent
 check_raw 2 '{"tool_name":"Agent","tool_input":"oops"}'        # tool_input not an object → general-purpose, inherit
 check_raw 2 '{"tool_name":"Agent","permission_mode":"plan","tool_input":{"subagent_type":"Explore"}}'   # plan mode is no exemption
+
+# ---- worktree isolation is banned (v2.13.0): any model, Plan included ----
+check_raw 2 '{"tool_name":"Agent","tool_input":{"subagent_type":"general-purpose","model":"sonnet","isolation":"worktree"}}'
+check_raw 2 '{"tool_name":"Agent","tool_input":{"subagent_type":"Plan","isolation":"worktree"}}'
+check_raw 2 '{"tool_name":"Agent","tool_input":{"subagent_type":"Explore","model":"opus","isolation":" Worktree "}}'
+check_raw 0 '{"tool_name":"Agent","tool_input":{"subagent_type":"general-purpose","model":"sonnet","isolation":"remote"}}'
+check_raw 0 '{"tool_name":"Agent","tool_input":{"subagent_type":"general-purpose","model":"sonnet","isolation":42}}'   # non-string = absent
+check_raw 0 '{"tool_name":"Bash","tool_input":{"isolation":"worktree"}}'                # not the Agent tool
+check 2 wt-agent                  # isolation: worktree in the agent definition
+check_model 2 wt-agent opus       # a compliant model does not lift it
+# a custom agent that takes the name Plan gets no pass on isolation either
+PROJ2="$TMP/proj2"; mkdir -p "$PROJ2/.claude/agents"
+agent "$PROJ2/.claude/agents/plan.md" Plan 'isolation: worktree'
+printf '%s' "$(json Agent Plan)" | CLAUDE_PROJECT_DIR="$PROJ2" bash "$HOOK" >/dev/null 2>&1
+verdict 2 $? "custom agent named Plan with isolation: worktree"
 
 # ---- fail closed without python3 ----
 SHIM="$TMP/shim"; mkdir -p "$SHIM"

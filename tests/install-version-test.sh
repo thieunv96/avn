@@ -88,7 +88,11 @@ cmp -s "$ROOT/src/settings.json"       "$T1/.claude/settings.json"       && ok |
 cmp -s "$ROOT/src/CLAUDE.md"           "$T1/CLAUDE.md"                   && ok || fail "t1 CLAUDE.md mapping mismatch"
 cmp -s "$ROOT/src/skills/verify/SKILL.md" "$T1/.claude/skills/verify/SKILL.md" && ok || fail "t1 skills mapping mismatch"
 cmp -s "$ROOT/src/hooks/agent-guard.sh" "$T1/.claude/hooks/agent-guard.sh" && ok || fail "t1 hook mapping mismatch (agent-guard)"
-for h in bash-guard file-guard agent-guard verify-gate; do
+# v2.13.0: the always-loaded profile rule and the report skill ship like any other rule/skill
+cmp -s "$ROOT/src/rules/profile.md" "$T1/.claude/rules/profile.md" && ok || fail "t1 rules mapping mismatch (profile)"
+cmp -s "$ROOT/src/skills/report/SKILL.md" "$T1/.claude/skills/report/SKILL.md" && ok || fail "t1 skills mapping mismatch (report)"
+cmp -s "$ROOT/src/hooks/scope-guard.sh" "$T1/.claude/hooks/scope-guard.sh" && ok || fail "t1 hook mapping mismatch (scope-guard)"
+for h in bash-guard file-guard agent-guard verify-gate scope-guard; do
   [ -x "$T1/.claude/hooks/$h.sh" ] && ok || fail "t1 hook not executable: $h.sh"
 done
 
@@ -198,6 +202,7 @@ assert_contains "t5 keep notice" "$OUT" "keep"
 [ -f "$T5/.claude/verify-commands" ] && ok || fail "t5 user verify-commands was removed"
 [ ! -f "$T5/.claude/settings.json" ] && ok || fail "t5 settings.json not removed"
 [ ! -f "$T5/.claude/hooks/bash-guard.sh" ] && ok || fail "t5 hook not removed"
+[ ! -f "$T5/.claude/hooks/scope-guard.sh" ] && ok || fail "t5 scope-guard hook not removed"
 [ ! -f "$T5/$STAMP_REL" ] && ok || fail "t5 stamp not removed"
 [ ! -d "$T5/.claude/skills" ] && ok || fail "t5 skills dir not pruned"
 [ -d "$T5/.claude" ] && ok || fail "t5 .claude dir should survive (verify-commands kept)"
