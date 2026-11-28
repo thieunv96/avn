@@ -185,13 +185,24 @@ for label, d in (("strict", strict), ("relaxed", relaxed)):
     for rule in V213_DENY:
         if rule not in p["deny"]:
             fail(f"{label}: permissions.deny missing {rule}")
-    for key in ("blockReadsOutsideWorkingDirectories", "blockWritesOutsideWorkingDirectories"):
-        if p.get(key) is not True:
-            fail(f"{label}: permissions.{key} must be true, got {p.get(key)!r}")
+    if p.get("blockWritesOutsideWorkingDirectories") is not True:
+        fail(f"{label}: permissions.blockWritesOutsideWorkingDirectories must be true, "
+             f"got {p.get('blockWritesOutsideWorkingDirectories')!r}")
+    # v2.13.1: the read block makes Claude Code prompt for every Bash command it cannot
+    # trace (cd sub && ls, a loop, $(...)), also inside the project; scope-guard.sh
+    # holds the read boundary of the file tools instead.
+    if "blockReadsOutsideWorkingDirectories" in p:
+        fail(f"{label}: permissions.blockReadsOutsideWorkingDirectories must not be set — it prompts "
+             f"for untraceable Bash commands inside the project; scope-guard.sh covers Read/Grep/Glob")
     entries = [e for e in hooks.get("PreToolUse", []) if e.get("matcher") == "Bash"]
     cmds = [h.get("command") for e in entries for h in e.get("hooks", [])]
     if len(entries) != 1 or cmds != [BASH_HOOK, SCOPE_HOOK]:
         fail(f"{label}: the PreToolUse Bash entry must run bash-guard.sh then scope-guard.sh, got {cmds}")
+    entries = [e for e in hooks.get("PreToolUse", []) if e.get("matcher") == "Read|Grep|Glob"]
+    cmds = [h.get("command") for e in entries for h in e.get("hooks", [])]
+    if len(entries) != 1 or cmds != [SCOPE_HOOK]:
+        fail(f"{label}: expected exactly one PreToolUse entry (matcher Read|Grep|Glob) running "
+             f"scope-guard.sh, got {cmds}")
     added = hooks.get("DirectoryAdded", [])
     cmds = [h.get("command") for e in added for h in e.get("hooks", [])]
     if cmds != [SCOPE_HOOK] or any("matcher" in e for e in added):

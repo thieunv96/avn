@@ -2,8 +2,9 @@
 # .claude/hooks/scope-guard.sh
 # The outside-directory boundary (v2.13.0). One script, two events:
 #
-#   PreToolUse (Bash; Monitor commands arrive under the same matcher) — blocks
-#     a command that names a path outside this session's directories and tells
+#   PreToolUse (Bash; Monitor commands arrive under the same matcher; and, since
+#     v2.13.1, the file tools Read, Grep and Glob) — blocks a command or a call
+#     that names a path outside this session's directories and tells
 #     the model to ask the user for /add-dir. Allowed without a grant: the
 #     project directory; the parts of ~/.claude a session needs (CLAUDE.md,
 #     rules, skills, agents, commands, plans, output-styles, and this project's
@@ -23,9 +24,20 @@
 #     hook cannot see them: use /add-dir inside the session. /clear starts a new
 #     session id, and with it a new, empty grant file.
 #
-# The file tools are covered by Claude Code itself (permissions.blockReads/
-# WritesOutsideWorkingDirectories in settings.json); this hook closes the Bash
-# side, which those settings leave open for writes and program arguments.
+# The write tools (Write, Edit, NotebookEdit) are covered by Claude Code itself
+# (permissions.blockWritesOutsideWorkingDirectories in settings.json). Reads are
+# covered here since v2.13.1: permissions.blockReadsOutsideWorkingDirectories,
+# which v2.13.0 set, makes Claude Code prompt in every mode for each Bash command
+# whose paths it cannot trace (`cd sub && ls`, a loop, `$(...)`, `find | xargs`,
+# `python3 -c`), also when the command stays inside the project. The file tools
+# are judged by the path they name (file_path; path; the fixed directory of a
+# Glob pattern) against the same directories and grants as Bash, and they reach
+# three places more, which Claude Code itself sends the model to: ~/.claude/plugins
+# (a plugin skill's reference files), the .md files at the top of ~/.claude
+# (what CLAUDE.md points to; one that is a symlink is judged by where it leads),
+# and the output files of this project's background commands. A Glob pattern
+# that can start over somewhere else past its fixed part ({/etc,src}/*, */../x)
+# is blocked. The LSP tool is not covered.
 #
 # How the command is read: the way bash reads it — words with their quotes
 # removed, comments dropped, heredoc bodies and $(...) substitutions told apart
@@ -122,8 +134,11 @@ if event == "DirectoryAdded":
 if isinstance(event, str) and event and event != "PreToolUse":
     out("OK")
 ti = d.get("tool_input")
-command = ti.get("command") if isinstance(ti, dict) else None
-if not isinstance(command, str) or not command.strip():
+ti = ti if isinstance(ti, dict) else {}
+FILE_TOOLS = ("Read", "Grep", "Glob")
+file_tool = d.get("tool_name") in FILE_TOOLS
+command = ti.get("command")
+if not file_tool and (not isinstance(command, str) or not command.strip()):
     out("OK")
 
 
@@ -281,6 +296,95 @@ def norm(path):
             pass
         cur = os.path.dirname(cur) or "/"
     return cur
+
+
+# The output file of one of this project's background commands, which Claude Code
+# writes under /tmp/claude-<uid>/<project>/<session id>/tasks/.
+TASK_OUTPUT = re.compile(r"^(/private)?/tmp/claude-\d+/(%s)/[^/]+/tasks/[^/]+\.output$" % "|".join(
+    re.escape(re.sub(r"[^A-Za-z0-9]", "-", v)) for v in sorted(proj_variants)))
+
+
+def refuse(hit):
+    """Block, with the message for this kind of hit."""
+    kind_of_hit, path = hit
+    what = "call" if file_tool else "command"
+    if kind_of_hit == "ROOT":
+        out("BLOCK this " + what + " names the filesystem root (/), which is outside this session's "
+            "directories. Name the specific directory you need, tell the user why, and ask them to "
+            "type /add-dir <directory>.")
+    if kind_of_hit == "GRANTS":
+        out("BLOCK " + path + " holds the directory grants and is written by /add-dir only. Do not "
+            "read or change it; ask the user to type /add-dir <directory>.")
+    if kind_of_hit == "CREDENTIALS":
+        out("BLOCK " + path + " is a machine-credentials location and is never granted to a session. "
+            "If the task needs something from it, stop and ask the user to do that step themselves.")
+    if kind_of_hit == "BRACES":
+        out("BLOCK the brace list in " + path[:120] + " expands to more paths than this guard checks. "
+            "Write the paths out, or split the command.")
+    if not file_tool and TASK_OUTPUT.match(path):
+        out("BLOCK " + path + " is the output file of a background command, outside this session's "
+            "directories for shell commands. Read it with the Read tool instead; no /add-dir is needed "
+            "for that.")
+    message = ("BLOCK this " + what + " uses a path outside this session's directories: " + path + ". Do "
+               "not work around it. Tell the user which directory you need and why, and ask them to "
+               "type /add-dir <directory> (a directory, not a file); one grant lasts until the session "
+               "ends.")
+    if path == "/tmp" or path.startswith(("/tmp/", "/var/tmp/")):
+        message += " Temporary files go in the session scratchpad" + (": " + scratch if scratch else "") + "."
+    out(message)
+
+
+# ---- file tools: Read, Grep and Glob meet the same boundary (v2.13.1) ----
+if file_tool:
+    # Open to the file tools only, not to Bash: the plugins (a plugin's skill sends the
+    # model to its reference files), the instruction files at the top of ~/.claude
+    # (GIT-CONVENTIONS.md and the like, which CLAUDE.md points to), and the output
+    # files of this project's background commands.
+    add_root(os.path.join(claude_home, "plugins"))
+
+    def tool_path(name, base):
+        """The absolute path a tool input names, None when it names none."""
+        if not isinstance(name, str) or not name:
+            return None
+        if name.startswith("~"):
+            name = home + name[1:] if name == "~" or name.startswith("~/") else os.path.expanduser(name)
+            if name.startswith("~"):
+                return None  # no such user
+        return norm(os.path.join(base, name))
+
+    try:
+        if d.get("tool_name") == "Read":
+            paths = [tool_path(ti.get("file_path"), cwd0)]
+        else:
+            # Grep and Glob search `path`, or the session's current directory without one
+            base = tool_path(ti.get("path"), cwd0) or cwd0
+            paths = [base]
+            pattern = ti.get("pattern") if d.get("tool_name") == "Glob" else None
+            if isinstance(pattern, str) and pattern:
+                # a glob lists the directory its fixed part ends in: /e*/hosts → /, ../x/*.py → ../x
+                cut = next((i for i, ch in enumerate(pattern) if ch in "*?[{"), len(pattern))
+                fixed, rest = pattern[:cut], pattern[cut:]
+                if cut < len(pattern) and not fixed.endswith("/"):
+                    fixed = os.path.dirname(fixed)
+                paths.append(tool_path(fixed, base) if fixed else None)
+                # past its fixed part a pattern may not start over somewhere else
+                if re.search(r"[{,](/|~|\.\.[/,}])", rest):
+                    refuse(("BRACES", pattern))     # {/etc,src}/*
+                if ".." in rest.split("/"):
+                    refuse(("OUTSIDE", pattern))    # */../../elsewhere/*
+        for path in paths:
+            if not path:
+                continue
+            if os.path.dirname(path) == claude_home and path.endswith(".md"):
+                if not os.path.islink(path):
+                    continue                        # an instruction file at the top of ~/.claude
+                path = os.path.normpath(os.path.join(claude_home, os.readlink(path)))  # judged by where it leads
+            hit = verdict(path)
+            if hit and not (hit[0] == "OUTSIDE" and TASK_OUTPUT.match(path)):
+                refuse(hit)
+    except Exception as exc:  # an analysis bug must not brick the file tools
+        print("scope-guard: analysis failed (%s); call not judged" % exc, file=sys.stderr)
+    out("OK")
 
 
 # ---- shell reader: identical in bash-guard.sh and scope-guard.sh (the tests compare the two) ----
@@ -1252,31 +1356,7 @@ except Exception as exc:  # an analysis bug must not brick Bash
 
 if not hit:
     out("OK")
-kind_of_hit, path = hit
-if kind_of_hit == "ROOT":
-    out("BLOCK this command names the filesystem root (/), which is outside this session's "
-        "directories. Name the specific directory you need, tell the user why, and ask them to "
-        "type /add-dir <directory>.")
-if kind_of_hit == "GRANTS":
-    out("BLOCK " + path + " holds the directory grants and is written by /add-dir only. Do not "
-        "read or change it; ask the user to type /add-dir <directory>.")
-if kind_of_hit == "CREDENTIALS":
-    out("BLOCK " + path + " is a machine-credentials location and is never granted to a session. "
-        "If the task needs something from it, stop and ask the user to do that step themselves.")
-if kind_of_hit == "BRACES":
-    out("BLOCK the brace list in " + path[:120] + " expands to more paths than this guard checks. "
-        "Write the paths out, or split the command.")
-if re.search(r"/claude-\d+/[^/]+/[^/]+/tasks/[^/]+\.output$", path):
-    out("BLOCK " + path + " is the output file of a background command, outside this session's "
-        "directories for shell commands. Read it with the Read tool instead; no /add-dir is needed "
-        "for that.")
-message = ("BLOCK this command uses a path outside this session's directories: " + path + ". Do "
-           "not work around it. Tell the user which directory you need and why, and ask them to "
-           "type /add-dir <directory> (a directory, not a file); one grant lasts until the session "
-           "ends.")
-if path == "/tmp" or path.startswith(("/tmp/", "/var/tmp/")):
-    message += " Temporary files go in the session scratchpad" + (": " + scratch if scratch else "") + "."
-out(message)
+refuse(hit)
 PY
 )
 
