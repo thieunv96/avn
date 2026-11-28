@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Self-test for .claude/hooks/scope-guard.sh — baseline repo only, never installed.
-# Feeds PreToolUse (Bash) and DirectoryAdded JSON into the hook and asserts the
+# Feeds PreToolUse (Bash, Read, Grep, Glob) and DirectoryAdded JSON into the hook and asserts the
 # exit code (0 = allow, 2 = block). The project, the "other" directories, HOME
 # and the scratchpad all live in one scratch tree, so the results never depend
 # on the host machine. Usage: bash tests/scope-guard-test.sh
@@ -204,8 +204,10 @@ check 2 '(echo x)>/tmp/f'                       # a redirect glued to another op
 check 2 'true;>/tmp/f'
 check_msg 'scratchpad' 'echo x > /tmp/avn-scope-probe.txt'
 check_msg '/add-dir' "cat $O/a.txt"
-# the output file of a background command is read with the Read tool, which Claude Code allows
-check_msg 'Read tool' 'tail -n 20 /tmp/claude-1000/-home-u-proj/0d78bd80-5707/tasks/b1.output'
+# the output file of this project's background commands is read with the Read tool, which
+# the hook lets through (see the file-tool cases below); another project's is just outside
+check_msg 'Read tool' "tail -n 20 /tmp/claude-1000/$SLUG/0d78bd80-5707/tasks/b1.output"
+check_msg '/add-dir' 'tail -n 20 /tmp/claude-1000/-home-u-proj/0d78bd80-5707/tasks/b1.output'
 
 # ---- inline code and nested shells ----
 check 2 "python -c \"print(open('$O/a.txt').read())\""
@@ -328,6 +330,107 @@ check 2 $'cat <<\'EOF\' | python3 -W ignore\nprint(open(\'/etc/hosts\').read())\
 # ---- a command the reader is not sure about: every absolute path in the text is judged ----
 check 2 "echo 'unterminated; cat $O/a.txt"
 check 0 "echo 'unterminated; cat src/app.py"
+
+# ---- file tools (v2.13.1): Read, Grep and Glob meet the same boundary as Bash ----
+# tool_payload TOOL INPUT_JSON — a PreToolUse event for a file tool
+tool_payload() {
+  python3 -c '
+import json, sys
+print(json.dumps({"hook_event_name": "PreToolUse", "tool_name": sys.argv[1],
+                  "session_id": sys.argv[3], "cwd": sys.argv[4], "scratchpad_dir": sys.argv[5],
+                  "tool_input": json.loads(sys.argv[2])}))' "$1" "$2" "$SESSION" "$CWD" "$S"
+}
+# check_tool EXPECTED TOOL INPUT_JSON
+check_tool() { local j; j=$(tool_payload "$2" "$3"); run_hook "$j"; verdict "$1" $? "[$SESSION] $2 $3"; }
+# check_tool_msg NEEDLE TOOL INPUT_JSON — must block and say NEEDLE on stderr
+check_tool_msg() {
+  local j err got
+  j=$(tool_payload "$2" "$3")
+  err=$(printf '%s' "$j" | bash "$HOOK" 2>&1 >/dev/null); got=$?
+  if [ "$got" -eq 2 ] && printf '%s' "$err" | grep -qF -- "$1"; then PASS=$((PASS+1)); else
+    FAIL=$((FAIL+1)); printf 'FAIL: expected a block mentioning "%s", got exit %s — %s %s\n' "$1" "$got" "$2" "$3" >&2
+  fi
+}
+SESSION="f1"                                    # a session without any grant
+mkdir -p "$H/.claude/plugins/cache/p/skills/s/references"
+: > "$H/.claude/plugins/cache/p/skills/s/references/guide.md"
+: > "$H/.claude/GIT-CONVENTIONS.md"; : > "$H/.claude/settings.json"
+TASKS="/tmp/claude-1000/$SLUG/0d78bd80-5707/tasks"
+# inside the project
+check_tool 0 Read "{\"file_path\": \"$P/src/app.py\"}"
+check_tool 0 Read '{"file_path": "src/app.py"}'             # relative to the session's cwd
+check_tool 0 Read "{\"file_path\": \"$P/inlink/app.py\"}"   # a symlink that stays inside
+check_tool 0 Read "{\"file_path\": \"$P/src/not-yet.py\"}"  # nothing there: the tool reports that itself
+check_tool 0 Grep '{"pattern": "/etc/hosts"}'               # no path: the project; the pattern is text
+check_tool 0 Grep "{\"pattern\": \"foo\", \"path\": \"$P/src\", \"glob\": \"*.py\"}"
+check_tool 0 Glob '{"pattern": "**/*.py"}'
+check_tool 0 Glob "{\"pattern\": \"*.py\", \"path\": \"$P/src\"}"
+check_tool 0 Glob "{\"pattern\": \"$P/src/**/*.py\"}"
+# outside the project: blocked until /add-dir
+check_tool 2 Read '{"file_path": "/etc/hosts"}'
+check_tool 2 Read "{\"file_path\": \"$O/a.txt\"}"
+check_tool 2 Read '{"file_path": "../outside/a.txt"}'
+check_tool 2 Read "{\"file_path\": \"$P/data/x.txt\"}"      # the symlink leaves the project
+check_tool 2 Read '{"file_path": "~/notes.txt"}'
+check_tool 2 Grep "{\"pattern\": \"foo\", \"path\": \"$N/ds\"}"
+check_tool 2 Glob "{\"pattern\": \"*.txt\", \"path\": \"$O\"}"
+check_tool 2 Glob "{\"pattern\": \"$O/**/*.txt\"}"          # an absolute pattern lists its fixed directory
+check_tool 2 Glob '{"pattern": "/e*/hosts"}'
+check_tool 2 Glob '{"pattern": "../outside/*.txt"}'         # a relative pattern that climbs out
+check_tool 2 Glob "{\"pattern\": \"$O/a.txt\"}"             # a pattern without a wildcard is a path
+check_tool 0 Glob '{"pattern": "src/app.py"}'
+CWD="$P/src"
+check_tool 0 Read '{"file_path": "../README.md"}'           # the shell has moved into a subdirectory
+check_tool 2 Read '{"file_path": "../../outside/a.txt"}'
+CWD="$P"
+check_tool_msg '/add-dir' Read "{\"file_path\": \"$O/a.txt\"}"
+# ~/.claude: what Bash may use, plus the plugins and the top-level .md files
+check_tool 0 Read "{\"file_path\": \"$H/.claude/CLAUDE.md\"}"
+check_tool 0 Read "{\"file_path\": \"$H/.claude/rules/x.md\"}"
+check_tool 0 Read "{\"file_path\": \"$H/.claude/projects/$SLUG/memory/MEMORY.md\"}"
+check_tool 0 Read "{\"file_path\": \"$H/.claude/plugins/cache/p/skills/s/references/guide.md\"}"
+check_tool 0 Glob "{\"pattern\": \"**/*.md\", \"path\": \"$H/.claude/plugins/cache/p\"}"
+check_tool 0 Read "{\"file_path\": \"$H/.claude/GIT-CONVENTIONS.md\"}"
+check_tool 2 Read "{\"file_path\": \"$H/.claude/settings.json\"}"
+check_tool 2 Read "{\"file_path\": \"$H/.claude/projects/-other-project/a.jsonl\"}"
+check_tool 2 Read "{\"file_path\": \"$H/.claude/avn-scope/s1\"}"
+check_tool 2 Grep "{\"pattern\": \"x\", \"path\": \"$H/.claude\"}"
+check_tool 2 Glob "{\"pattern\": \"$H/.claude/*.md\"}"      # lists ~/.claude itself
+check_tool_msg 'never granted' Read "{\"file_path\": \"$H/.claude/.credentials.json\"}"
+check_tool_msg 'never granted' Read "{\"file_path\": \"$H/.ssh/id_rsa\"}"
+check 2 "cat $H/.claude/plugins/cache/p/skills/s/references/guide.md"   # Bash keeps its narrower list
+check 2 "cat $H/.claude/GIT-CONVENTIONS.md"
+# the scratchpad, and the output file of this project's background commands
+check_tool 0 Read "{\"file_path\": \"$S/notes.md\"}"
+check_tool 0 Read "{\"file_path\": \"$TASKS/b1.output\"}"
+check_tool 2 Read '{"file_path": "/tmp/claude-1000/-other-project/0d78bd80-5707/tasks/b1.output"}'
+check_tool 2 Read "{\"file_path\": \"$TASKS/../../../x.output\"}"
+# a path that only looks like one is judged like any other path
+check_tool 2 Read "{\"file_path\": \"$O/claude-1/$SLUG/x/tasks/a.output\"}"
+check_tool 2 Read "{\"file_path\": \"$H/.claude/avn-scope/claude-1/$SLUG/x/tasks/a.output\"}"
+check_tool_msg 'never granted' Read "{\"file_path\": \"$H/.ssh/claude-1/$SLUG/x/tasks/a.output\"}"
+# a top-level .md that is a symlink is judged by where it leads
+ln -s "$O/a.txt" "$H/.claude/linked-out.md"; ln -s rules/x.md "$H/.claude/linked-in.md"
+check_tool 2 Read "{\"file_path\": \"$H/.claude/linked-out.md\"}"
+check_tool 0 Read "{\"file_path\": \"$H/.claude/linked-in.md\"}"
+# past its fixed part a Glob pattern may not start over somewhere else
+check_tool 2 Glob '{"pattern": "{/etc,src}/*"}'
+check_tool 2 Glob '{"pattern": "{../outside,src}/*.txt"}'
+check_tool 2 Glob '{"pattern": "*/../../outside/*.txt"}'
+check_tool 0 Glob '{"pattern": "src/{deep,x}/**/*.py"}'
+check_tool 0 Glob '{"pattern": "**/*.{py,md}"}'
+# one grant covers the file tools and Bash alike
+grant "$O"
+check_tool 0 Read "{\"file_path\": \"$O/a.txt\"}"
+check_tool 0 Glob "{\"pattern\": \"$O/**/*.txt\"}"
+check_tool 2 Read "{\"file_path\": \"$N/ds/x.txt\"}"
+# the write tools are not judged here: permissions.blockWritesOutsideWorkingDirectories refuses them
+check_tool 0 Write "{\"file_path\": \"$N/new.txt\", \"content\": \"x\"}"
+check_tool 0 Edit "{\"file_path\": \"$N/ds/x.txt\", \"old_string\": \"a\", \"new_string\": \"b\"}"
+# input the hook cannot read is not judged
+check_tool 0 Read '{}'
+check_tool 0 Read '{"file_path": 7}'
+SESSION="s1"
 
 # ---- the shell reader is the same text in this hook and in bash-guard.sh ----
 reader_of() { sed -n '/^# ---- shell reader/,/^# ---- end of shell reader ----/p' "$1"; }

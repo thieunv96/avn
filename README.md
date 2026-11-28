@@ -10,7 +10,7 @@ A shared Claude Code configuration baseline for ThieuNV's projects:
 - `.claude/hooks/bash-guard.sh` — PreToolUse hook that deterministically blocks dangerous Bash commands (push to main — including a bare `git push` while the checkout sits on main/master, `rm -rf` in any flag order/case plus recursive `rm` outside the project dir, secret reads, destructive SQL/redis/mongo/docker/kubectl, `git clean -f`, discarding uncommitted changes via `checkout`/`restore`/`stash drop`, `git worktree add`, shell edits of the guard files themselves, …). When it blocks a data-destroying command it tells Claude to show you the exact command and let you run it.
 - `.claude/hooks/file-guard.sh` — PreToolUse hook for the file tools (Read/Edit/Write/Grep, …): blocks every dotenv file **except** the placeholder templates `.env.example` / `.env.sample` / `.env.template` / `.env.dist`, and blocks the write tools on the baseline guard files so the agent cannot neutralize its own guard layer.
 - `.claude/hooks/agent-guard.sh` — PreToolUse hook for the `Agent` tool: blocks any subagent call that would not run on Sonnet or Opus (a missing `model` inherits the main model), except the built-in `Plan`; `subagent_type: "fork"` is always blocked (and denied by `Agent(fork)` in `settings.json`). It resolves the model the way Claude Code does — call parameter, then the agent definition's `model:` frontmatter, then `CLAUDE_CODE_SUBAGENT_MODEL` — and tells Claude how to re-issue the call. A call or an agent definition that asks for `isolation: worktree` is blocked too.
-- `.claude/hooks/scope-guard.sh` — PreToolUse hook for Bash plus `DirectoryAdded` hook: blocks a command that names a path outside the project directory, the parts of `~/.claude` a session needs and the session scratchpad until you grant that directory with `/add-dir` (see [Outside directories and worktrees](#outside-directories-and-worktrees)).
+- `.claude/hooks/scope-guard.sh` — PreToolUse hook for Bash and for Read / Grep / Glob, plus `DirectoryAdded` hook: blocks a command or a read that names a path outside the project directory, the parts of `~/.claude` a session needs and the session scratchpad until you grant that directory with `/add-dir` (see [Outside directories and worktrees](#outside-directories-and-worktrees)).
 - `.claude/hooks/verify-gate.sh` — Stop hook that can enforce "tests green before finishing"; **dormant by default**, and it re-runs the commands only when the working tree changed since the last green run (see below).
 - `.claude/verify-commands.example` — template for opting in to the verify gate.
 - `.claude/settings.json` — permission baseline (allow / ask / deny) plus the hook wiring. Sessions start in **`acceptEdits`** with the bare `Bash` rule allowed, so file edits and every Bash command that no deny/ask rule names run without a prompt; in auto mode a classifier takes that role. Either way the deny/ask lists and the hooks are the boundary (see [Auto-accept](#auto-accept-what-still-prompts-or-blocks)): ask rules name data-changing actions rather than tools, paths outside the project are blocked until `/add-dir`, and git worktrees are banned. Ships as the **strict** profile by default, with a **relaxed** variant for isolated systems (see [Guard profiles](#guard-profiles)). Both profiles also switch off AI attribution on commits and pull requests and declare the `taste-skill` plugin.
@@ -89,7 +89,7 @@ When a file would be overwritten, you get an arrow-key menu asking whether to ba
 Requirements: `tar` plus `curl` or `wget` on PATH (standard on Linux/macOS), and `python3` at
 runtime (3.6 or newer) — the guard hooks read commands with it and **fail closed**: without python3 every
 Bash/file tool call **and every subagent spawn** is blocked until it is installed. Claude Code
-**2.1.314 or newer**: the outside-directory settings and the `DirectoryAdded` / `WorktreeCreate`
+**2.1.314 or newer**: the outside-directory write block and the `DirectoryAdded` / `WorktreeCreate`
 hooks of v2.13.0 need it.
 
 Pin a different source with env vars:
@@ -137,7 +137,7 @@ project dir, `sudo`/`su`, push to main/master and force pushes, `curl | sh`, des
 SQL/redis/mongo, `docker volume rm/prune`, broad `kubectl delete`, `git clean -f` /
 `checkout --` / `restore` / `stash drop`, `npm install -g`, the subagent model policy
 (`agent-guard.sh` plus the `Agent(fork)` deny), the worktree ban, the outside-directory boundary
-(`scope-guard.sh` plus the two `block…OutsideWorkingDirectories` settings), and the self-protection
+(`scope-guard.sh` plus the `blockWritesOutsideWorkingDirectories` setting), and the self-protection
 of the guard files themselves.
 
 ```bash
@@ -207,14 +207,17 @@ Shift+Tab or `--permission-mode`; the project setting only picks the starting mo
 Since v2.13.0 a governed session works in **the project directory, the parts of `~/.claude` it
 needs and its own scratchpad**, and nowhere else until you say so (needs Claude Code 2.1.314+):
 
-- The file tools refuse a path outside the project
-  (`permissions.blockReadsOutsideWorkingDirectories` / `blockWritesOutsideWorkingDirectories`).
-  Inside `~/.claude` they reach what Claude Code itself needs: rules, skills, agents, memory, plans.
-- `scope-guard.sh` blocks a Bash command that names an outside path: another project, a dataset or
-  NAS mount, the home directory, `/tmp`, `/etc`, `/proc`. Inside `~/.claude` it leaves open
+- `Write`, `Edit` and `NotebookEdit` refuse a path outside the project
+  (`permissions.blockWritesOutsideWorkingDirectories`).
+- `scope-guard.sh` blocks `Read`, `Grep` and `Glob` on an outside path, and a Bash command that
+  names one: another project, a dataset or NAS mount, the home directory, `/tmp`, `/etc`, `/proc`.
+  Inside `~/.claude` it leaves open
   `CLAUDE.md`, `rules/`, `skills/`, `agents/`, `commands/`, `plans/`, `output-styles/` and this
   project's own folder under `projects/` (its memory and transcripts); other projects' transcripts
-  and the settings need a grant. Not judged: device files such as `/dev/null` and `/dev/video*`; the program being run (a
+  and the settings need a grant. The three file tools also reach `~/.claude/plugins/` (a plugin
+  skill's reference files), the `.md` files at the top of `~/.claude` (what your `CLAUDE.md` points
+  to) and the output files of this project's background commands. Not judged in a Bash command:
+  device files such as `/dev/null` and `/dev/video*`; the program being run (a
   conda `python` may run and its `activate` script may be sourced, reading files next to it may
   not); text that only looks like a path (`sed '/tmp/d'`, a URL, a commit message, `7 // 2`); and
   the far side of `docker exec` / `run`, `kubectl exec` and `ssh` (host mounts given with `-v` /
@@ -223,10 +226,17 @@ needs and its own scratchpad**, and nowhere else until you say so (needs Claude 
   **`/add-dir <directory>`**: the grant covers reads and writes below that directory and lasts until
   the session ends. `permissions.additionalDirectories` in your user settings or in the project's
   settings files (where `/add-dir` keeps a directory you tell it to remember) count as granted.
-  `--add-dir` at startup and the `/permissions` Workspace tab are not visible to the hook, and a
+  `--add-dir` at startup and the `/permissions` Workspace tab are not visible to the hook (so
+  `Read`, `Grep`, `Glob` and Bash stay blocked there), and a
   grant is tied to the session id, so use `/add-dir` inside the session, again after `/clear` (which
   starts a new session id). Temporary files belong in the session scratchpad, not `/tmp`; the output
-  file of a background command is read with the Read tool, which Claude Code allows.
+  file of a background command is read with the Read tool, which the hook lets through.
+- **Why reads are a hook and not a setting (v2.13.1).** v2.13.0 also set
+  `permissions.blockReadsOutsideWorkingDirectories`. With it Claude Code prompts, in every permission
+  mode, for each Bash command whose paths it cannot trace (`cd sub && ls`, a `for` loop, `$(...)`,
+  `find | xargs`, `python3 -c`), even when the command only reads inside the project: 10 of 14
+  read-only commands on a subfolder prompted in a live test, none without the setting. Do not add
+  it back. The hook does not know the LSP tool, so that one is not held to the boundary.
 - Machine credentials (`~/.ssh`, `~/.aws`, `~/.kube`, `~/.docker/config.json`,
   `~/.claude/.credentials.json`, any `kubeconfig`) are never granted, not even by `/add-dir ~`. The
   grant files live in `~/.claude/avn-scope/`: the edit tools are denied there and Bash commands that
@@ -403,7 +413,8 @@ Know what the guard layer is — and is not — before relying on it:
   secret path that inline code builds at run time, whatever a script opens on its own, and editors
   driven from the command line (`vim -es`, `ed`).
 - **scope-guard reads the command, not the program.** It judges paths written out in a Bash command,
-  read the same way (the two hooks share one reader). It does not see a path held in a variable,
+  read the same way (the two hooks share one reader), and the path a `Read`, `Grep` or `Glob` call
+  names. In a command it does not see a path held in a variable,
   glued to a short flag (`-o/tmp/x`), given as a leading `NAME=value`, or opened by a script on its
   own; and it skips the arguments of `echo`, the pattern of `grep`, a `sed`/`awk` script that opens
   no file itself, and everything after `docker exec`. It stops Claude from wandering into other

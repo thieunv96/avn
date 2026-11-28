@@ -3,7 +3,7 @@
 
   "$comment-ask": "Ask by action, not by tool (v2.13.0): docker, the SQL clients, redis-cli, kubectl, helm, aws, gcloud, az and systemctl prompt only for the listed data- or state-changing actions (the SQL and redis rules start with '*' so they also match 'docker exec <container> psql …'; they see SQL written inline after the client name, in upper or lower case — SQL piped in, read from a file or sent through a heredoc is not asked about). Read-only and run/build commands are not listed, and neither is anything the lists do not know: those are left to the permission mode. Destructive commands (DROP, TRUNCATE, volume rm, FLUSHALL, rm -rf, …) never reach these rules: hooks/bash-guard.sh blocks them. tests/settings-profile-test.sh generates this list from the action families and fails on any drift, so change both together.",
 
-  "$comment-scope": "Outside directories (v2.13.0, needs Claude Code 2.1.314+): blockReads/WritesOutsideWorkingDirectories make the file tools refuse any path outside the project until the user grants a directory with /add-dir (one grant lasts the session). hooks/scope-guard.sh applies the same boundary to paths named in Bash commands, which those two settings leave open for writes and program arguments, and records each /add-dir through the DirectoryAdded event in ~/.claude/avn-scope/ (deny-listed for edits and blocked in Bash, so the obvious ways for the agent to grant itself are closed). Inside ~/.claude only CLAUDE.md, rules, skills, agents, commands, plans, output-styles and this project's own folder under projects/ are open without a grant. Worktrees are banned (v2.13.0): the EnterWorktree/ExitWorktree tools, 'git worktree add' and Agent isolation are denied, and the WorktreeCreate hook fails every other route (--worktree, background sessions, agent definitions).",
+  "$comment-scope": "Outside directories (v2.13.0, needs Claude Code 2.1.314+): a path outside the project is refused until the user grants its directory with /add-dir (one grant lasts the session). blockWritesOutsideWorkingDirectories makes Write, Edit and NotebookEdit refuse it; hooks/scope-guard.sh blocks it in Bash commands and, since v2.13.1, in Read, Grep and Glob, and records each /add-dir through the DirectoryAdded event in ~/.claude/avn-scope/ (deny-listed for edits and blocked in Bash, so the obvious ways for the agent to grant itself are closed). Do NOT set blockReadsOutsideWorkingDirectories (v2.13.0 did): with it Claude Code prompts in every mode for each Bash command whose paths it cannot trace ('cd sub && ls', a loop, '$(...)', 'find | xargs', 'python3 -c'), even when the command stays inside the project. Inside ~/.claude only CLAUDE.md, rules, skills, agents, commands, plans, output-styles and this project's own folder under projects/ are open without a grant; the file tools also reach plugins/ and the .md files at its top. Worktrees are banned (v2.13.0): the EnterWorktree/ExitWorktree tools, 'git worktree add' and Agent isolation are denied, and the WorktreeCreate hook fails every other route (--worktree, background sessions, agent definitions).",
 
   "permissions": {
 
@@ -238,7 +238,6 @@
     ],
 
     "defaultMode": "acceptEdits",
-    "blockReadsOutsideWorkingDirectories": true,
     "blockWritesOutsideWorkingDirectories": true
   },
 
@@ -293,6 +292,16 @@
           {
             "type": "command",
             "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/file-guard.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/scope-guard.sh",
+            "timeout": 10
           }
         ]
       },
